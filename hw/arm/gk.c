@@ -21,6 +21,8 @@
 #include "hw/arm/boot.h"
 #include "qom/object.h"
 #include "target/arm/cpu.h"
+#include "hw/misc/unimp.h"
+
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
@@ -146,6 +148,12 @@ static void gk_machine_init(MachineState *machine)
     }
 
     memory_region_add_subregion(get_system_memory(), 0x80000000, &mc->ddrram);
+
+    create_unimplemented_device("stm32mp2_peripherals_ns", 0x40000000, 0x10000000);
+    create_unimplemented_device("stm32mp2_peripherals_s", 0x50000000, 0x10000000);
+
+    mc->binfo.ram_size = 1 * GiB;
+    arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
 }
 
 static void gk_machine_class_init(ObjectClass *oc, const void *data)
