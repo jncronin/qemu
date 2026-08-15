@@ -22,10 +22,22 @@
 #include "qom/object.h"
 #include "target/arm/cpu.h"
 #include "hw/misc/unimp.h"
+#include "chardev/char-fe.h"
+#include "chardev/char-serial.h"
+#include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-properties-system.h"
 
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
+
+#define TYPE_STM32MP2_USART "stm32mp2-usart"
+
+struct Stm32MP2UsartState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+    CharFrontend chr;
+};
 
 struct GKMachineState {
     /*< private >*/
@@ -38,6 +50,8 @@ struct GKMachineState {
     {
         ARMCPU core;
     } cpu[4];
+
+    struct Stm32MP2UsartState usart6;
 };
 
 static const char *gk_cpu_types[] = { 
@@ -152,6 +166,12 @@ static void gk_machine_init(MachineState *machine)
     create_unimplemented_device("stm32mp2_peripherals_ns", 0x40000000, 0x10000000);
     create_unimplemented_device("stm32mp2_peripherals_s", 0x50000000, 0x10000000);
 
+    /* peripherals */
+    object_initialize_child(OBJECT(machine), "usart6", &mc->usart6, TYPE_STM32MP2_USART);
+    //qdev_prop_set_chr(DEVICE_STATE(&mc->usart6), "chardev", serial_hd(0));
+    sysbus_realize(SYS_BUS_DEVICE(&mc->usart6), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->usart6), 0, 0x40220000);
+
     mc->binfo.ram_size = 1 * GiB;
     arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
 }
@@ -181,3 +201,87 @@ static const TypeInfo gk_machine_types[] = {
 };
 
 DEFINE_TYPES(gk_machine_types)
+
+
+/* STM32MP2 USART */
+struct Stm32MP2UsartClass
+{
+    SysBusDeviceClass parent_class;
+};
+
+OBJECT_DECLARE_TYPE(Stm32MP2UsartState, Stm32MP2UsartClass,
+                    STM32MP2_USART)
+
+static void stm32mp2_usart_write(void *opaque, hwaddr addr,
+                                  uint64_t val64, unsigned int size)
+{
+    switch(addr)
+    {
+        case 0x28:
+            fprintf(stderr, "%c", (char)val64);
+            break;
+    }
+}
+
+static uint64_t stm32mp2_usart_read(void *opaque, hwaddr addr,
+                                     unsigned int size)
+{
+    switch(addr)
+    {
+        case 0x1c:
+            return 0x800080;
+        default:
+            return 0;
+    }
+}
+
+static const MemoryRegionOps stm32mp2_usart_ops = {
+    .read = stm32mp2_usart_read,
+    .write = stm32mp2_usart_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+    .impl = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+};
+
+static const Property stm32mp2_usart_properties[] = {
+    DEFINE_PROP_CHR("chardev", Stm32MP2UsartState, chr),
+};
+
+static void stm32mp2_usart_init(Object *obj)
+{
+    Stm32MP2UsartState *s = STM32MP2_USART(obj);
+
+    //sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+
+    memory_region_init_io(&s->mmio, obj, &stm32mp2_usart_ops, s,
+                          TYPE_STM32MP2_USART, 0x400);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
+}
+
+static void stm32mp2_usart_class_init(ObjectClass *class,
+                                            const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(class);
+    device_class_set_props(dc, stm32mp2_usart_properties);
+}
+
+static const TypeInfo stm32mp2_usart_types[] = {
+    {
+        .name           = TYPE_STM32MP2_USART,
+        .parent         = TYPE_SYS_BUS_DEVICE,
+        .instance_size  = sizeof(Stm32MP2UsartState),
+        .instance_init  = stm32mp2_usart_init,
+        .class_size     = sizeof(Stm32MP2UsartClass),
+        .class_init     = stm32mp2_usart_class_init,
+    }
+};
+
+DEFINE_TYPES(stm32mp2_usart_types)
