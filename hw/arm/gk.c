@@ -316,7 +316,7 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
 
     if(addr < 65536)
     {
-        s->regs[addr / 4] = (uint32_t)addr;
+        s->regs[addr / 4] = (uint32_t)val64;
     }
 
     switch(addr)
@@ -327,12 +327,23 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
             if(val64 & 0x1)
                 s->regs[0x4a4 / 4] |= 0x1;
             break;
-            
+
         case 0x4a0:
             if(val64 & 0x100)
                 s->regs[0x4a4 / 4] &= ~0x100;
             if(val64 & 0x1)
                 s->regs[0x4a4 / 4] &= ~0x1;
+            break;
+
+        case 0x440: // BDCR
+            if(val64 & 0x200)
+                s->regs[0x440 / 4] |= 0x400;
+            else
+                s->regs[0x440 / 4] &= ~-0x400;
+            if(val64 & 0x1)
+                s->regs[0x440 / 4] |= 0x4;
+            else
+                s->regs[0x440 / 4] &= ~0x4;
             break;
 
         default:
