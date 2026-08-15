@@ -32,12 +32,21 @@
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
+#define TYPE_STM32MP2_RCC "stm32mp2-rcc"
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
     CharFrontend chr;
 };
+
+struct Stm32MP2RCCState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    uint32_t regs[65336/4];
+};
+
 
 struct GKMachineState {
     /*< private >*/
@@ -52,6 +61,7 @@ struct GKMachineState {
     } cpu[4];
 
     struct Stm32MP2UsartState usart6;
+    struct Stm32MP2RCCState rcc;
 };
 
 static const char *gk_cpu_types[] = { 
@@ -172,6 +182,10 @@ static void gk_machine_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&mc->usart6), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->usart6), 0, 0x40220000);
 
+    object_initialize_child(OBJECT(machine), "rcc", &mc->rcc, TYPE_STM32MP2_RCC);
+    sysbus_realize(SYS_BUS_DEVICE(&mc->rcc), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->rcc), 0, 0x44200000);
+
     mc->binfo.ram_size = 1 * GiB;
     arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
 }
@@ -285,3 +299,100 @@ static const TypeInfo stm32mp2_usart_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_usart_types)
+
+/* STM32MP2 RCC */
+struct Stm32MP2RCCClass
+{
+    SysBusDeviceClass parent_class;
+};
+
+OBJECT_DECLARE_TYPE(Stm32MP2RCCState, Stm32MP2RCCClass,
+                    STM32MP2_RCC)
+
+static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
+                                  uint64_t val64, unsigned int size)
+{
+    Stm32MP2RCCState *s = opaque;
+
+    if(addr < 65536)
+    {
+        s->regs[addr / 4] = (uint32_t)addr;
+    }
+
+    switch(addr)
+    {
+        case 0x49c:
+            if(val64 & 0x100)
+                s->regs[0x4a4 / 4] |= 0x100;
+            if(val64 & 0x1)
+                s->regs[0x4a4 / 4] |= 0x1;
+            break;
+            
+        case 0x4a0:
+            if(val64 & 0x100)
+                s->regs[0x4a4 / 4] &= ~0x100;
+            if(val64 & 0x1)
+                s->regs[0x4a4 / 4] &= ~0x1;
+            break;
+
+        default:
+            break;
+    }
+}
+
+static uint64_t stm32mp2_RCC_read(void *opaque, hwaddr addr,
+                                     unsigned int size)
+{
+    Stm32MP2RCCState *s = opaque;
+
+    if(addr < 65536)
+    {
+        return (uint64_t)s->regs[addr / 4];
+    }
+    return 0;
+}
+
+static const MemoryRegionOps stm32mp2_RCC_ops = {
+    .read = stm32mp2_RCC_read,
+    .write = stm32mp2_RCC_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+    .impl = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+};
+
+static void stm32mp2_RCC_init(Object *obj)
+{
+    Stm32MP2RCCState *s = STM32MP2_RCC(obj);
+
+    //sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+
+    memory_region_init_io(&s->mmio, obj, &stm32mp2_RCC_ops, s,
+                          TYPE_STM32MP2_RCC, 0x10000);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
+}
+
+static void stm32mp2_RCC_class_init(ObjectClass *class,
+                                            const void *data)
+{
+}
+
+static const TypeInfo stm32mp2_RCC_types[] = {
+    {
+        .name           = TYPE_STM32MP2_RCC,
+        .parent         = TYPE_SYS_BUS_DEVICE,
+        .instance_size  = sizeof(Stm32MP2RCCState),
+        .instance_init  = stm32mp2_RCC_init,
+        .class_size     = sizeof(Stm32MP2RCCClass),
+        .class_init     = stm32mp2_RCC_class_init,
+    }
+};
+
+DEFINE_TYPES(stm32mp2_RCC_types)
