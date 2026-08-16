@@ -26,13 +26,16 @@
 #include "chardev/char-serial.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
-
+#include "hw/block/flash.h"
+#include "system/block-backend.h"
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
 #define TYPE_STM32MP2_RCC "stm32mp2-rcc"
+
+#define FLASH_SIZE (4 * MiB)
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -177,6 +180,27 @@ static void gk_machine_init(MachineState *machine)
 
     create_unimplemented_device("stm32mp2_peripherals_ns", 0x40000000, 0x10000000);
     create_unimplemented_device("stm32mp2_peripherals_s", 0x50000000, 0x10000000);
+
+    /* Flash */
+    DriveInfo *dinfo = drive_get(IF_PFLASH, 0, 0);
+    if(!dinfo)
+    {
+        error_report("Please provide a flash image with the -pflash option");
+        exit(1);
+    }
+    BlockBackend *blk_flash = blk_by_legacy_dinfo(dinfo);
+    int64_t blk_flash_len = blk_getlength(blk_flash);
+    if(blk_flash_len < FLASH_SIZE)
+    {
+        // pad up to flash size.  Need to wrap in get/release resize permissions
+        uint64_t perm, shared_perm;
+        blk_get_perm(blk_flash, &perm, &shared_perm);
+        blk_set_perm(blk_flash, perm | BLK_PERM_RESIZE, shared_perm, &error_fatal);
+        blk_truncate(blk_flash, FLASH_SIZE, 0, PREALLOC_MODE_OFF, 0, &error_fatal);
+        blk_set_perm(blk_flash, perm, shared_perm, &error_fatal);
+    }
+    pflash_cfi01_register(0x60000000, "ospi.flash", FLASH_SIZE,
+        blk_by_legacy_dinfo(dinfo), 4 * KiB, 4, 0, 0, 0, 0, 0);
 
     /* peripherals */
     object_initialize_child(OBJECT(machine), "usart6", &mc->usart6, TYPE_STM32MP2_USART);
