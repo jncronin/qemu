@@ -421,6 +421,8 @@ static void stm32mp2_RCC_init(Object *obj)
     memory_region_init_io(&s->mmio, obj, &stm32mp2_RCC_ops, s,
                           TYPE_STM32MP2_RCC, 0x10000);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
+
+    s->regs[0x4d0/4] = 0x80000000u; // LSMCUDIVR
 }
 
 static void stm32mp2_RCC_class_init(ObjectClass *class,
