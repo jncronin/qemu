@@ -29,6 +29,9 @@
 #include "hw/block/flash.h"
 #include "system/block-backend.h"
 #include "hw/core/ptimer.h"
+#include "hw/core/irq.h"
+#include "hw/intc/arm_gic.h"
+#include "hw/arm/bsa.h"
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
@@ -63,37 +66,40 @@ struct Stm32MP2TIMState {
     ptimer_state *pt;
 
     uint32_t cr1, cr2, dier, sr, psc, arr;
+
+    qemu_irq irq;
 };
 
 struct TIMInit
 {
     int id;
     hwaddr base;
+    unsigned gic_irq;
 };
 
 static const struct TIMInit timinits[] = {
-    { -5, 0x46070000 },
-    { -4, 0x46060000 },
-    { -3, 0x46050000 },
-    { 20, 0x40320000 },
-    { 17, 0x40270000 },
-    { 16, 0x40260000 },
-    { 15, 0x40250000 },
-    { 8, 0x40210000 },
-    { 1, 0x40200000 },
-    { 11, 0x401d0000 },
-    { 10, 0x401c0000 },
-    { -2, 0x400a0000 },
-    { -1, 0x40090000 },
-    { 14, 0x40080000 },
-    { 13, 0x40070000 },
-    { 12, 0x40060000 },
-    { 7, 0x40050000 },
-    { 6, 0x40040000 },
-    { 5, 0x40030000 },
-    { 4, 0x40020000 },
-    { 3, 0x40010000 },
-    { 2, 0x40000000 },
+    { -5, 0x46070000, 218 },
+    { -4, 0x46060000, 217 },
+    { -3, 0x46050000, 216 },
+    { 20, 0x40320000, 102 },
+    { 17, 0x40270000, 195 },
+    { 16, 0x40260000, 194 },
+    { 15, 0x40250000, 193 },
+    { 8, 0x40210000, 119 },
+    { 1, 0x40200000, 98 },
+    { 11, 0x401d0000, 225 },
+    { 10, 0x401c0000, 205 },
+    { -2, 0x400a0000, 215 },
+    { -1, 0x40090000, 166 },
+    { 14, 0x40080000, 204 },
+    { 13, 0x40070000, 203 },
+    { 12, 0x40060000, 196 },
+    { 7, 0x40050000, 129 },
+    { 6, 0x40040000, 128 },
+    { 5, 0x40030000, 124 },
+    { 4, 0x40020000, 107 },
+    { 3, 0x40010000, 106 },
+    { 2, 0x40000000, 105 },
 };
 
 struct GKMachineState {
@@ -111,6 +117,8 @@ struct GKMachineState {
     struct Stm32MP2UsartState usart6;
     struct Stm32MP2RCCState rcc;
     struct Stm32MP2TIMState tims[sizeof(timinits) / sizeof(timinits[0])];
+
+    DeviceState *gic;
 };
 
 static const char *gk_cpu_types[] = { 
@@ -126,12 +134,50 @@ static void gk_machine_init(MachineState *machine)
     
     GKMachineState *mc = GK_MACHINE(machine);
 
-    object_initialize_child(OBJECT(mc), "cpu[0]", &mc->cpu[0].core,
-                            ARM_CPU_TYPE_NAME("cortex-a35"));
-    qdev_realize(DEVICE(&mc->cpu[0].core), NULL, &error_fatal);
-    object_initialize_child(OBJECT(mc), "cpu[1]", &mc->cpu[1].core,
-                            ARM_CPU_TYPE_NAME("cortex-a35"));
-    qdev_realize(DEVICE(&mc->cpu[1].core), NULL, &error_fatal);
+    const unsigned int ncpus = 2;
+    const unsigned int nspis = 384;
+
+    /* GICv2 */
+    mc->gic = qdev_new(TYPE_ARM_GIC);
+    qdev_prop_set_uint32(mc->gic, "revision", 2);
+    qdev_prop_set_uint32(mc->gic, "num-cpu", ncpus);
+    qdev_prop_set_uint32(mc->gic, "num-irq", nspis + GIC_INTERNAL);
+    qdev_prop_set_bit(mc->gic, "has-security-extensions", true);
+    qdev_prop_set_bit(mc->gic, "has-virtualization-extensions", true);
+    sysbus_realize(SYS_BUS_DEVICE(mc->gic), &error_fatal);
+
+    sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 0, 0x4ac10000);
+    sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 1, 0x4ac20000);    // per-cpu decoding is done in the gic device
+    sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 2, 0x4ac40000);
+    sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 3, 0x4ac60000);
+
+    /* CPUs */
+    for(unsigned int i = 0; i < ncpus; i++)
+    {
+        g_autofree char *str_cpuname = g_strdup_printf("CPU[%u]", i);
+        
+        // create cpu
+        object_initialize_child(OBJECT(mc), str_cpuname, &mc->cpu[i].core,
+            ARM_CPU_TYPE_NAME("cortex-a35"));
+        qdev_realize(DEVICE(&mc->cpu[i].core), NULL, &error_fatal);
+
+        // Link GIC outputs to CPU IRQ inputs
+        sysbus_connect_irq(SYS_BUS_DEVICE(mc->gic), i,
+            qdev_get_gpio_in(DEVICE(&mc->cpu[i].core), ARM_CPU_IRQ));
+        sysbus_connect_irq(SYS_BUS_DEVICE(mc->gic), ncpus + i,
+            qdev_get_gpio_in(DEVICE(&mc->cpu[i].core), ARM_CPU_FIQ));
+        sysbus_connect_irq(SYS_BUS_DEVICE(mc->gic), 2 * ncpus + i,
+            qdev_get_gpio_in(DEVICE(&mc->cpu[i].core), ARM_CPU_VIRQ));
+        sysbus_connect_irq(SYS_BUS_DEVICE(mc->gic), 3 * ncpus + i,
+            qdev_get_gpio_in(DEVICE(&mc->cpu[i].core), ARM_CPU_VFIQ));
+
+        // Link PPI outputs to GIC inputs
+        const unsigned int irq_base = nspis + i * GIC_INTERNAL;
+        qdev_connect_gpio_out(DEVICE(&mc->cpu[i].core), GTIMER_PHYS,
+            qdev_get_gpio_in(DEVICE(mc->gic), irq_base + ARCH_TIMER_NS_EL1_IRQ));
+        qdev_connect_gpio_out(DEVICE(&mc->cpu[i].core), GTIMER_VIRT,
+            qdev_get_gpio_in(DEVICE(mc->gic), irq_base + ARCH_TIMER_VIRT_IRQ));
+    }
 
 #if 0
     object_initialize_child(OBJECT(mc), "cpu[2]", &mc->cpu[2].core,
@@ -270,6 +316,9 @@ static void gk_machine_init(MachineState *machine)
         qdev_prop_set_int32(DEVICE(&mc->tims[i]), "id", id);
         sysbus_realize(SYS_BUS_DEVICE(&mc->tims[i]), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(&mc->tims[i]), 0, timinits[i].base);
+
+        sysbus_connect_irq(SYS_BUS_DEVICE(&mc->tims[i]), 0,
+            qdev_get_gpio_in(DEVICE(mc->gic), timinits[i].gic_irq));
     }
 
     mc->binfo.ram_size = 1 * GiB;
@@ -524,8 +573,8 @@ static void stm32mp2_TIM_write(void *opaque, hwaddr addr,
     Stm32MP2TIMState *s = opaque;
     (void)s;
 
-    fprintf(stderr, "%sTIM%d: write %x to %p\n",
-        s->is_lp ? "LP" : "", s->id, (unsigned)val64, (void *)addr);
+    //fprintf(stderr, "%sTIM%d: write %x to %p\n",
+    //    s->is_lp ? "LP" : "", s->id, (unsigned)val64, (void *)addr);
 
     ptimer_transaction_begin(s->pt);
 
@@ -547,8 +596,18 @@ static void stm32mp2_TIM_write(void *opaque, hwaddr addr,
                 }
                 break;
 
+            case 0xc:
+                s->dier = (uint32_t)val64 & 0xf05f5f;
+                break;
+
             case 0x10:
                 s->sr = (uint32_t)val64 & 0x1;
+                if((val64 & 0x1) == 0)
+                {
+                    //fprintf(stderr, "%sTIM%d: SR clear\n",
+                    //    s->is_lp ? "LP" : "", s->id);
+                    qemu_set_irq(s->irq, 0);
+                }
                 break;
 
             case 0x24:
@@ -628,16 +687,20 @@ static void tim_cb(void *opaque)
     Stm32MP2TIMState *s = STM32MP2_TIM(opaque);
 
     s->sr |= 0x1;
+    if(s->dier & 0x1)
+    {
+        qemu_set_irq(s->irq, 1);
+    }
 
-    fprintf(stderr, "%sTIM%d: tick\n",
-        s->is_lp ? "LP" : "", s->id);
+    //fprintf(stderr, "%sTIM%d: tick\n",
+    //    s->is_lp ? "LP" : "", s->id);
 }
 
 static void stm32mp2_TIM_init(Object *obj)
 {
     Stm32MP2TIMState *s = STM32MP2_TIM(obj);
 
-    //sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
 
     s->pt = ptimer_init(tim_cb, s, PTIMER_POLICY_WRAP_AFTER_ONE_PERIOD);
     s->cr1 = 0;
