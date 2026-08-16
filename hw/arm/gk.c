@@ -133,16 +133,17 @@ static void gk_machine_init(MachineState *machine)
         MemoryRegion *a_retram = g_new(MemoryRegion, 1);
         MemoryRegion *a_vderam = g_new(MemoryRegion, 1);
 
-        memory_region_init_alias(a_sysram, NULL,
-            g_strdup_printf("SYSRAM@%p", (void *)(sram_offsets[i] + 0)), &mc->sysram, 0, 256 * KiB);
-        memory_region_init_alias(a_sram1, NULL,
-            g_strdup_printf("SRAM1@%p", (void *)(sram_offsets[i] + 0x40000)), &mc->sram1, 0, 128 * KiB);
-        memory_region_init_alias(a_sram2, NULL,
-            g_strdup_printf("SRAM2@%p", (void *)(sram_offsets[i] + 0x60000)), &mc->sram2, 0, 128 * KiB);
-        memory_region_init_alias(a_retram, NULL,
-            g_strdup_printf("RETRAM@%p", (void *)(sram_offsets[i] + 0x80000)), &mc->retram, 0, 128 * KiB);
-        memory_region_init_alias(a_vderam, NULL,
-            g_strdup_printf("VDERAM@%p", (void *)(sram_offsets[i] + 0xa0000)), &mc->vderam, 0, 128 * KiB);
+        g_autofree char *str_sysram = g_strdup_printf("SYSRAM@%p", (void *)(sram_offsets[i] + 0));
+        g_autofree char *str_sram1 = g_strdup_printf("SRAM1@%p", (void *)(sram_offsets[i] + 0x40000));
+        g_autofree char *str_sram2 = g_strdup_printf("SRAM2@%p", (void *)(sram_offsets[i] + 0x60000));
+        g_autofree char *str_retram = g_strdup_printf("RETRAM@%p", (void *)(sram_offsets[i] + 0x80000));
+        g_autofree char *str_vderam = g_strdup_printf("VDERAM@%p", (void *)(sram_offsets[i] + 0xa0000));        
+
+        memory_region_init_alias(a_sysram, NULL, str_sysram, &mc->sysram, 0, 256 * KiB);
+        memory_region_init_alias(a_sram1, NULL, str_sram1, &mc->sram1, 0, 128 * KiB);
+        memory_region_init_alias(a_sram2, NULL, str_sram2, &mc->sram2, 0, 128 * KiB);
+        memory_region_init_alias(a_retram, NULL, str_retram, &mc->retram, 0, 128 * KiB);
+        memory_region_init_alias(a_vderam, NULL, str_vderam, &mc->vderam, 0, 128 * KiB);
 
         memory_region_add_subregion(get_system_memory(), sram_offsets[i] + 0, a_sysram);
         memory_region_add_subregion(get_system_memory(), sram_offsets[i] + 0x40000, a_sram1);
@@ -159,12 +160,13 @@ static void gk_machine_init(MachineState *machine)
         MemoryRegion *a_lpsram2 = g_new(MemoryRegion, 1);
         MemoryRegion *a_lpsram3 = g_new(MemoryRegion, 1);
 
-        memory_region_init_alias(a_lpsram1, NULL,
-            g_strdup_printf("LPSRAM1@%p", (void *)(lpsram_offsets[i] + 0)), &mc->lpsram1, 0, 8 * KiB);
-        memory_region_init_alias(a_lpsram2, NULL,
-            g_strdup_printf("LPSRAM2@%p", (void *)(lpsram_offsets[i] + 0x2000)), &mc->lpsram2, 0, 8 * KiB);
-        memory_region_init_alias(a_lpsram3, NULL,
-            g_strdup_printf("LPSRAM3@%p", (void *)(lpsram_offsets[i] + 0x4000)), &mc->lpsram3, 0, 16 * KiB);
+        g_autofree char *str_lpsram1 = g_strdup_printf("LPSRAM1@%p", (void *)(lpsram_offsets[i] + 0));
+        g_autofree char *str_lpsram2 = g_strdup_printf("LPSRAM2@%p", (void *)(lpsram_offsets[i] + 0x2000));
+        g_autofree char *str_lpsram3 = g_strdup_printf("LPSRAM3@%p", (void *)(lpsram_offsets[i] + 0x4000));
+
+        memory_region_init_alias(a_lpsram1, NULL, str_lpsram1, &mc->lpsram1, 0, 8 * KiB);
+        memory_region_init_alias(a_lpsram2, NULL, str_lpsram2, &mc->lpsram2, 0, 8 * KiB);
+        memory_region_init_alias(a_lpsram3, NULL, str_lpsram3, &mc->lpsram3, 0, 16 * KiB);
 
         memory_region_add_subregion(get_system_memory(), lpsram_offsets[i] + 0, a_lpsram1);
         memory_region_add_subregion(get_system_memory(), lpsram_offsets[i] + 0x2000, a_lpsram2);
