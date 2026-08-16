@@ -358,6 +358,13 @@ static uint64_t stm32mp2_RCC_read(void *opaque, hwaddr addr,
 {
     Stm32MP2RCCState *s = opaque;
 
+    // handle read-only id registers
+    switch(addr)
+    {
+        case 0xfff8:
+            return 0x80000003u;     // special qemu-detection code (normally 0x3u on hardware)
+    }
+
     if(addr < 65536)
     {
         return (uint64_t)s->regs[addr / 4];
