@@ -28,12 +28,14 @@
 #include "hw/core/qdev-properties-system.h"
 #include "hw/block/flash.h"
 #include "system/block-backend.h"
+#include "hw/core/ptimer.h"
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
 #define TYPE_STM32MP2_RCC "stm32mp2-rcc"
+#define TYPE_STM32MP2_TIM "stm32mp2-tim"
 
 #define FLASH_SIZE (4 * MiB)
 
@@ -50,6 +52,49 @@ struct Stm32MP2RCCState {
     uint32_t regs[65336/4];
 };
 
+struct Stm32MP2TIMState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t is_lp;
+    int32_t id;
+    uint64_t input_freq;
+
+    ptimer_state *pt;
+
+    uint32_t cr1, cr2, dier, sr, psc, arr;
+};
+
+struct TIMInit
+{
+    int id;
+    hwaddr base;
+};
+
+static const struct TIMInit timinits[] = {
+    { -5, 0x46070000 },
+    { -4, 0x46060000 },
+    { -3, 0x46050000 },
+    { 20, 0x40320000 },
+    { 17, 0x40270000 },
+    { 16, 0x40260000 },
+    { 15, 0x40250000 },
+    { 8, 0x40210000 },
+    { 1, 0x40200000 },
+    { 11, 0x401d0000 },
+    { 10, 0x401c0000 },
+    { -2, 0x400a0000 },
+    { -1, 0x40090000 },
+    { 14, 0x40080000 },
+    { 13, 0x40070000 },
+    { 12, 0x40060000 },
+    { 7, 0x40050000 },
+    { 6, 0x40040000 },
+    { 5, 0x40030000 },
+    { 4, 0x40020000 },
+    { 3, 0x40010000 },
+    { 2, 0x40000000 },
+};
 
 struct GKMachineState {
     /*< private >*/
@@ -65,6 +110,7 @@ struct GKMachineState {
 
     struct Stm32MP2UsartState usart6;
     struct Stm32MP2RCCState rcc;
+    struct Stm32MP2TIMState tims[sizeof(timinits) / sizeof(timinits[0])];
 };
 
 static const char *gk_cpu_types[] = { 
@@ -211,6 +257,20 @@ static void gk_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "rcc", &mc->rcc, TYPE_STM32MP2_RCC);
     sysbus_realize(SYS_BUS_DEVICE(&mc->rcc), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->rcc), 0, 0x44200000);
+
+    for(unsigned i = 0; i < sizeof(timinits) / sizeof(timinits[0]); i++)
+    {
+        int is_lp = timinits[i].id < 0 ? 1 : 0;
+        int id = is_lp ? -timinits[i].id : timinits[i].id;
+        g_autofree char *str_timname = g_strdup_printf("%sTIM%d",
+            is_lp ? "LP" : "", id);
+        
+        object_initialize_child(OBJECT(machine), str_timname, &mc->tims[i], TYPE_STM32MP2_TIM);
+        qdev_prop_set_int32(DEVICE(&mc->tims[i]), "is_lp", is_lp);
+        qdev_prop_set_int32(DEVICE(&mc->tims[i]), "id", id);
+        sysbus_realize(SYS_BUS_DEVICE(&mc->tims[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->tims[i]), 0, timinits[i].base);
+    }
 
     mc->binfo.ram_size = 1 * GiB;
     arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
@@ -442,3 +502,172 @@ static const TypeInfo stm32mp2_RCC_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_RCC_types)
+
+/* STM32MP2 TIM */
+struct Stm32MP2TIMClass
+{
+    SysBusDeviceClass parent_class;
+};
+
+OBJECT_DECLARE_TYPE(Stm32MP2TIMState, Stm32MP2TIMClass,
+                    STM32MP2_TIM)
+
+static const Property stm32mp2_tim_properties[] = {
+    DEFINE_PROP_INT32("is_lp", Stm32MP2TIMState, is_lp, 0),
+    DEFINE_PROP_INT32("id", Stm32MP2TIMState, id, 0),
+    DEFINE_PROP_UINT64("input_freq", Stm32MP2TIMState, input_freq, 200000000)
+};
+
+static void stm32mp2_TIM_write(void *opaque, hwaddr addr,
+                                  uint64_t val64, unsigned int size)
+{
+    Stm32MP2TIMState *s = opaque;
+    (void)s;
+
+    fprintf(stderr, "%sTIM%d: write %x to %p\n",
+        s->is_lp ? "LP" : "", s->id, (unsigned)val64, (void *)addr);
+
+    ptimer_transaction_begin(s->pt);
+
+    if(!s->is_lp)
+    {
+        switch(addr)
+        {
+            case 0:
+                {
+                    uint32_t changed_vals = s->cr1 ^ (uint32_t)val64;
+                    s->cr1 = (uint32_t)val64 & 0x188fu;
+                    if(changed_vals & 0x1)
+                    {
+                        if(val64 & 0x1)
+                            ptimer_run(s->pt, (s->cr1 & 0x8) == 0 ? 0 : 1);
+                        else
+                            ptimer_stop(s->pt);
+                    }
+                }
+                break;
+
+            case 0x10:
+                s->sr = (uint32_t)val64 & 0x1;
+                break;
+
+            case 0x24:
+                ptimer_set_count(s->pt, ptimer_get_limit(s->pt) - (uint32_t)val64);;
+                break;
+
+            case 0x28:
+                s->psc = (uint32_t)val64 & 0xffffU;
+                ptimer_set_freq(s->pt, (uint32_t)(s->input_freq / (uint64_t)(s->psc + 1)));
+                break;
+
+            case 0x2c:
+                s->arr = (uint32_t)val64;
+                ptimer_set_limit(s->pt, s->arr, 0);
+                break;
+        }
+    }
+    switch(addr)
+    {
+        default:
+            break;
+    }
+
+    ptimer_transaction_commit(s->pt);
+}
+
+static uint64_t stm32mp2_TIM_read(void *opaque, hwaddr addr,
+                                     unsigned int size)
+{
+    Stm32MP2TIMState *s = opaque;
+    
+    if(!s->is_lp)
+    {
+        switch(addr)
+        {
+            case 0:
+                return s->cr1;
+            case 4:
+                return s->cr2;
+            case 0xc:
+                return s->dier;
+            case 0x10:
+                return s->sr;
+            case 0x24:
+                return ptimer_get_limit(s->pt) - ptimer_get_count(s->pt);
+            case 0x28:
+                return s->psc;
+            case 0x2c:
+                return s->arr;
+        }
+    }
+
+    fprintf(stderr, "%sTIM%d: read from %p unimplemented\n",
+        s->is_lp ? "LP" : "", s->id, (void *)addr);
+
+    return 0;
+}
+
+static const MemoryRegionOps stm32mp2_TIM_ops = {
+    .read = stm32mp2_TIM_read,
+    .write = stm32mp2_TIM_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+    .impl = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+};
+
+static void tim_cb(void *opaque)
+{
+    Stm32MP2TIMState *s = STM32MP2_TIM(opaque);
+
+    s->sr |= 0x1;
+
+    fprintf(stderr, "%sTIM%d: tick\n",
+        s->is_lp ? "LP" : "", s->id);
+}
+
+static void stm32mp2_TIM_init(Object *obj)
+{
+    Stm32MP2TIMState *s = STM32MP2_TIM(obj);
+
+    //sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+
+    s->pt = ptimer_init(tim_cb, s, PTIMER_POLICY_WRAP_AFTER_ONE_PERIOD);
+    s->cr1 = 0;
+    s->cr2 = 0;
+    s->dier = 0;
+    s->sr = 0;
+    s->psc = 0;
+    s->arr = 0;
+
+    memory_region_init_io(&s->mmio, obj, &stm32mp2_TIM_ops, s,
+                          TYPE_STM32MP2_TIM, 0x400);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
+}
+
+static void stm32mp2_TIM_class_init(ObjectClass *class,
+                                            const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(class);
+    device_class_set_props(dc, stm32mp2_tim_properties);
+}
+
+static const TypeInfo stm32mp2_TIM_types[] = {
+    {
+        .name           = TYPE_STM32MP2_TIM,
+        .parent         = TYPE_SYS_BUS_DEVICE,
+        .instance_size  = sizeof(Stm32MP2TIMState),
+        .instance_init  = stm32mp2_TIM_init,
+        .class_size     = sizeof(Stm32MP2TIMClass),
+        .class_init     = stm32mp2_TIM_class_init,
+    }
+};
+
+DEFINE_TYPES(stm32mp2_TIM_types)
