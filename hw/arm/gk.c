@@ -32,6 +32,7 @@
 #include "hw/core/irq.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
+#include <time.h>
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
@@ -39,6 +40,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
 #define TYPE_STM32MP2_RCC "stm32mp2-rcc"
 #define TYPE_STM32MP2_TIM "stm32mp2-tim"
+#define TYPE_STM32MP2_RTC "stm32mp2-rtc"
 
 #define FLASH_SIZE (4 * MiB)
 
@@ -68,6 +70,11 @@ struct Stm32MP2TIMState {
     uint32_t cr1, cr2, dier, sr, psc, arr;
 
     qemu_irq irq;
+};
+
+struct Stm32MP2RTCState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
 };
 
 struct TIMInit
@@ -117,6 +124,7 @@ struct GKMachineState {
     struct Stm32MP2UsartState usart6;
     struct Stm32MP2RCCState rcc;
     struct Stm32MP2TIMState tims[sizeof(timinits) / sizeof(timinits[0])];
+    struct Stm32MP2RTCState rtc;
 
     DeviceState *gic;
 };
@@ -320,6 +328,10 @@ static void gk_machine_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(&mc->tims[i]), 0,
             qdev_get_gpio_in(DEVICE(mc->gic), timinits[i].gic_irq));
     }
+
+    object_initialize_child(OBJECT(machine), "rtc", &mc->rtc, TYPE_STM32MP2_RTC);
+    sysbus_realize(SYS_BUS_DEVICE(&mc->rtc), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->rtc), 0, 0x46000000);
 
     mc->binfo.ram_size = 1 * GiB;
     arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
@@ -734,3 +746,118 @@ static const TypeInfo stm32mp2_TIM_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_TIM_types)
+
+/* STM32MP2 RTC */
+struct Stm32MP2RTCClass
+{
+    SysBusDeviceClass parent_class;
+};
+
+OBJECT_DECLARE_TYPE(Stm32MP2RTCState, Stm32MP2RTCClass,
+                    STM32MP2_RTC)
+
+static void stm32mp2_RTC_write(void *opaque, hwaddr addr,
+                                  uint64_t val64, unsigned int size)
+{
+    Stm32MP2RTCState *s = opaque;
+    (void)s;
+
+    fprintf(stderr, "RTC: write %x to %p\n", (unsigned)val64, (void *)addr);
+}
+
+static uint32_t to_bcd(uint32_t val)
+{
+    uint32_t ret = 0;
+    for(unsigned i = 0; i < 8; i++)
+    {
+        uint32_t cv = val % 10;
+        val /= 10;
+
+        ret |= cv << (i * 4);
+    }
+    return ret;
+}
+
+static uint64_t stm32mp2_RTC_read(void *opaque, hwaddr addr,
+                                     unsigned int size)
+{
+    Stm32MP2RTCState *s = opaque;
+    (void)s;
+    
+    switch(addr)
+    {
+        case 0:
+            {
+                time_t ct = time(NULL);
+                struct tm *gtime = gmtime(&ct);
+                return (to_bcd(gtime->tm_hour) << 16) |
+                    (to_bcd(gtime->tm_min) << 8 ) |
+                    (to_bcd(gtime->tm_sec) << 0);
+            }
+
+        case 4:
+            {
+                time_t ct = time(NULL);
+                struct tm *gtime = gmtime(&ct);
+                return ((to_bcd(gtime->tm_year) & 0xffU) << 16) |
+                    (gtime->tm_wday << 13) |
+                    (to_bcd(gtime->tm_mon) << 8) |
+                    (to_bcd(gtime->tm_mday) << 0);
+            }
+
+        case 0xc:
+            return 1U << 4;
+
+        default:
+            break;
+    }
+
+    fprintf(stderr, "RTC: read from %p unimplemented\n",
+        (void *)addr);
+    return 0;
+}
+
+static const MemoryRegionOps stm32mp2_RTC_ops = {
+    .read = stm32mp2_RTC_read,
+    .write = stm32mp2_RTC_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+    .impl = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+};
+
+static void stm32mp2_RTC_init(Object *obj)
+{
+    Stm32MP2RTCState *s = STM32MP2_RTC(obj);
+
+    memory_region_init_io(&s->mmio, obj, &stm32mp2_RTC_ops, s,
+                          TYPE_STM32MP2_RTC, 0x400);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
+}
+
+static void stm32mp2_RTC_class_init(ObjectClass *class,
+                                            const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(class);
+    device_class_set_props(dc, stm32mp2_tim_properties);
+}
+
+static const TypeInfo stm32mp2_RTC_types[] = {
+    {
+        .name           = TYPE_STM32MP2_RTC,
+        .parent         = TYPE_SYS_BUS_DEVICE,
+        .instance_size  = sizeof(Stm32MP2RTCState),
+        .instance_init  = stm32mp2_RTC_init,
+        .class_size     = sizeof(Stm32MP2RTCClass),
+        .class_init     = stm32mp2_RTC_class_init,
+    }
+};
+
+DEFINE_TYPES(stm32mp2_RTC_types)
