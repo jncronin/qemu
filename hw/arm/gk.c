@@ -167,6 +167,10 @@ static void gk_machine_init(MachineState *machine)
         // create cpu
         object_initialize_child(OBJECT(mc), str_cpuname, &mc->cpu[i].core,
             ARM_CPU_TYPE_NAME("cortex-a35"));
+
+        // Generic timer input frequency
+        object_property_set_int(OBJECT(&mc->cpu[i].core), "cntfrq", 64000000, &error_fatal);
+
         qdev_realize(DEVICE(&mc->cpu[i].core), NULL, &error_fatal);
 
         // Link GIC outputs to CPU IRQ inputs
