@@ -46,7 +46,26 @@ OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 #define TYPE_STM32MP2_PWR "stm32mp2-pwr"
 #define TYPE_STM32MP2_PLL "stm32mp2-pll"
 
+#define TYPE_I2C_INA236A "ina236a"
+
 #define FLASH_SIZE (4 * MiB)
+
+struct i2c_device
+{
+    SysBusDevice parent_obj;
+
+    int (*start)(struct i2c_device *);
+    uint8_t (*read)(struct i2c_device *);
+    int (*write)(struct i2c_device *, uint8_t);
+    void (*stop)(struct i2c_device *);
+};
+
+struct ina236_state
+{
+    struct i2c_device base;
+    int bytes_since_start;
+    int reg_id;
+};
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -91,6 +110,11 @@ struct Stm32MP2RTCState {
     MemoryRegion mmio;
 };
 
+enum i2cstate
+{
+    i2c_Reset, i2c_M_Addressed, i2c_M_Data
+};
+
 struct Stm32MP2I2CState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
@@ -98,6 +122,12 @@ struct Stm32MP2I2CState {
     int32_t id;
 
     qemu_irq irq;
+
+    uint32_t cr1, cr2, isr, timingr, rxdr;
+
+    struct i2c_device *devs[256];
+
+    enum i2cstate state;
 };
 
 struct Stm32MP2PWRState {
@@ -142,14 +172,14 @@ static const struct TIMInit timinits[] = {
 };
 
 static const struct TIMInit i2cinits[] = {
-    { 8, 0x46040000, 212 },
-    { 7, 0x40180000, 210 },
-    { 6, 0x40170000, 208 },
-    { 5, 0x40160000, 181 },
-    { 4, 0x40150000, 168 },
-    { 3, 0x40140000, 137 },
+    { 1, 0x40120000, 108 },
     { 2, 0x40130000, 110 },
-    { 1, 0x40120000, 108 }
+    { 3, 0x40140000, 137 },
+    { 4, 0x40150000, 168 },
+    { 5, 0x40160000, 181 },
+    { 6, 0x40170000, 208 },
+    { 7, 0x40180000, 210 },
+    { 8, 0x46040000, 212 }
 };
 
 struct GKMachineState {
@@ -401,6 +431,16 @@ static void gk_machine_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&mc->pwr), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->pwr), 0, 0x44210000);
 
+    // i2c devices - need to assign to pointer of concrete type first to avoid sizeof() issue in object_initialize_child
+    mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);
+    //struct ina236_state *ina236 = NULL;
+    //object_initialize_child(OBJECT(&mc->i2cs[1]), "ina236a", ina236, TYPE_I2C_INA236A);
+    //mc->i2cs[1].devs[0x40] = &ina236->base;
+    qdev_realize(DEVICE(mc->i2cs[1].devs[0x40]), NULL, &error_fatal);
+    //init_ina236a(&mc->i2cs[1].devs[0x40]);
+    //init_max17048(&mc->i2cs[1].devs[0x36]);
+
+    // kernel
     mc->binfo.ram_size = 1 * GiB;
     arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
 }
@@ -1090,13 +1130,198 @@ static const Property stm32mp2_I2C_properties[] = {
     DEFINE_PROP_INT32("id", Stm32MP2I2CState, id, 0),
 };
 
+static unsigned int i2c_cr2_to_addr(uint32_t addr)
+{
+    return (unsigned int)((addr >> 1) & 0x7f);
+}
+
+static void i2c_send_stop(Stm32MP2I2CState *s)
+{
+    // send stop
+    unsigned int i2caddr = i2c_cr2_to_addr(s->cr2);
+    if(s->devs[i2caddr] && s->devs[i2caddr]->stop)
+        s->devs[i2caddr]->stop(s->devs[i2caddr]);
+}
+
+static uint32_t i2c_read_data(Stm32MP2I2CState *s)
+{
+    uint32_t n_left = (s->cr2 >> 16) & 0xffU;
+    if(n_left && (s->cr2 & (0x1 << 10)))        // ensure wrn set
+    {
+        // get data from slave
+        //fprintf(stderr, "I2C: read data\n");
+
+        // get data from slave
+        unsigned int i2caddr = i2c_cr2_to_addr(s->cr2);
+        s->rxdr = (s->devs[i2caddr] && s->devs[i2caddr]->read) ? s->devs[i2caddr]->read(s->devs[i2caddr]) : 0;
+        s->isr |= 1U << 2;
+
+        n_left--;
+
+        // program new nbytes
+        s->cr2 = (s->cr2 & ~(0xffU << 16)) | (n_left << 16);
+
+        if(!n_left)
+        {
+            if(s->cr2 & (1U << 25))
+            {
+                // autoend - send stop
+                i2c_send_stop(s);
+            }
+            else
+            {
+                // no autoend, set tc
+                s->isr |= 1U << 6;
+            }
+
+            if(s->cr2 & (1U << 24))
+            {
+                // reload, set tcr
+                s->isr |= 1U << 7;
+            }
+        }
+    }
+    else
+    {
+        // nothing to read - don't update rxdr
+        s->isr &= ~(1U << 2);
+    }
+    return s->rxdr;
+}
+
+static void i2c_write_data(Stm32MP2I2CState *s, uint32_t d)
+{
+    if(!(s->isr & 0x1))
+    {
+        // txe not set - abort
+        return;
+    }
+
+    uint32_t n_left = (s->cr2 >> 16) & 0xffU;
+    if(n_left)
+    {
+        // send data to slave
+        unsigned int i2caddr = i2c_cr2_to_addr(s->cr2);
+        if(s->devs[i2caddr] && s->devs[i2caddr]->write)
+            s->devs[i2caddr]->write(s->devs[i2caddr], d);
+
+        n_left--;
+
+        // program new nbytes
+        s->cr2 = (s->cr2 & ~(0xffU << 16)) | (n_left << 16);
+
+        if(!n_left)
+        {
+            if(s->cr2 & (1U << 25))
+            {
+                // autoend - send stop
+                i2c_send_stop(s);
+            }
+            else
+            {
+                // no autoend, set tc
+                s->isr |= 1U << 6;
+            }
+
+            if(s->cr2 & (1U << 24))
+            {
+                // reload, set tcr
+                s->isr |= 1U << 7;
+            }
+
+            s->isr &= ~0x3U;        // clear txe, txis
+        }
+    }
+    else
+    {
+        // nothing to write
+        s->isr &= ~0x3U;        // clear txe, txis
+    }
+}
+
 static void stm32mp2_I2C_write(void *opaque, hwaddr addr,
                                   uint64_t val64, unsigned int size)
 {
     Stm32MP2I2CState *s = opaque;
     (void)s;
 
-    fprintf(stderr, "I2C: write %x to %p\n", (unsigned)val64, (void *)addr);
+    //fprintf(stderr, "I2C: write %x to %p\n", (unsigned)val64, (void *)addr);
+
+    switch(addr)
+    {
+        case 0:
+            s->cr1 = val64;
+            if(!(val64 & 0x1))
+            {
+                s->state = i2c_Reset;
+                s->cr2 &= ~(1U << 13);      // clear START
+            }
+            return;
+
+        case 4:
+            s->cr2 = val64;
+
+            if(val64 & 0xff0000U)
+            {
+                // nbtyes non zero
+                s->isr &= ~(1U << 7);       // clear TCR
+            }
+
+            if(val64 & (1U << 13))
+            {
+                s->isr &= ~(1U << 6);       // clear TC
+
+                if(!(s->cr1 & 0x1))
+                {
+                    // PE not enabled - just clear
+                    s->cr2 &= ~(1U << 13);
+                }
+                else
+                {
+                    // send start
+                    unsigned int i2caddr = i2c_cr2_to_addr(val64);
+                    unsigned int is_read = val64 & (0x1 << 10);
+
+                    //fprintf(stderr, "I2C: START to %x\n", i2caddr);
+
+                    // for now, assume ack
+                    int ack = (s->devs[i2caddr] && s->devs[i2caddr]->start &&
+                        s->devs[i2caddr]->start(s->devs[i2caddr]) == 0) ? 1 : 0;
+                    if(ack)
+                    {
+                        s->cr2 &= ~(1U << 13);  // clear start
+
+                        if(is_read)
+                        {
+                            s->rxdr = i2c_read_data(s);
+                        }
+                        else
+                        {
+                            s->isr |= 0x3u;  // set txis + txe
+                        }
+                    }
+                }
+            }
+            if(val64 & (1U << 14))
+            {
+                s->isr &= ~(1U << 6);       // clear TC
+                i2c_send_stop(s);
+                s->cr2 &= ~(1U << 14);
+            }
+            return;
+
+        case 0x10:
+            s->timingr = val64;
+            return;
+
+        case 0x1c:
+            s->isr &= (0xffffc0c7 | ~val64);
+            return;
+
+        case 0x28:
+            i2c_write_data(s, val64);
+            return;
+    }
 }
 
 static uint64_t stm32mp2_I2C_read(void *opaque, hwaddr addr,
@@ -1104,16 +1329,44 @@ static uint64_t stm32mp2_I2C_read(void *opaque, hwaddr addr,
 {
     Stm32MP2I2CState *s = opaque;
     (void)s;
+
+    uint32_t ret = 0;
     
     switch(addr)
     {
+        case 0:
+            ret = s->cr1;
+            break;
+
+        case 4:
+            ret = s->cr2;
+            break;
+
+        case 0x10:
+            ret = s->timingr;
+            break;
+
+        case 0x18:
+            ret = s->isr;
+            break;
+
+        case 0x24:
+            {
+                uint32_t retval = s->rxdr;
+                i2c_read_data(s);
+                ret = retval;
+            }
+            break;
+            
         default:
+            fprintf(stderr, "I2C: read from %p unimplemented\n",
+                (void *)addr);
             break;
     }
 
-    fprintf(stderr, "I2C: read from %p unimplemented\n",
-        (void *)addr);
-    return 0;
+    //fprintf(stderr, "I2C: read from 0x%lx : %x\n",
+    //    addr, ret);
+    return ret;
 }
 
 static const MemoryRegionOps stm32mp2_I2C_ops = {
@@ -1264,3 +1517,89 @@ static const TypeInfo stm32mp2_PWR_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_PWR_types)
+
+// INA236
+OBJECT_DECLARE_SIMPLE_TYPE(ina236_state, I2C_INA236A)
+
+static int ina236_start(struct i2c_device *_d)
+{
+    struct ina236_state *d = (struct ina236_state *)_d;
+    d->bytes_since_start = 0;
+    return 0;
+}
+
+static void ina236_stop(struct i2c_device *)
+{ }
+
+static uint8_t ina236_read(struct i2c_device *_d)
+{
+    struct ina236_state *d = (struct ina236_state *)_d;
+    uint8_t ret = 0;
+
+    switch(d->reg_id)
+    {
+        case 0x3e*2:
+            ret = 0x54;
+            break;
+        case 0x3e*2+1:
+            ret = 0x49;
+            break;
+        case 0x3f*2:
+            ret = 0xa0;
+            break;
+        case 0x3f*2+1:
+            ret = 0x80;
+            break;
+        case 0x1*2:
+            ret = 0x7;
+            break;
+        case 0x1*2+1:
+            ret = 0xd0;
+            break;
+        case 0x2*2:
+            ret = 0x9;
+            break;
+        case 0x2*2+1:
+            ret = 0xc4;
+            break;
+    }
+
+    //fprintf(stderr, "INA236: reg %x%s: %x\n", d->reg_id / 2, (d->reg_id & 0x1) ? "L" : "H", ret);
+    d->reg_id++;
+
+    return ret;
+}
+
+static int ina236_write(struct i2c_device *_d, uint8_t v)
+{
+    struct ina236_state *d = (struct ina236_state *)_d;
+
+    if(d->bytes_since_start == 0)
+    {
+        d->reg_id = v * 2;
+    }
+    d->bytes_since_start++;
+
+    return 0;
+}
+
+static void ina236_init(Object *obj)
+{
+    ina236_state *s = I2C_INA236A(obj);
+    s->base.start = ina236_start;
+    s->base.stop = ina236_stop;
+    s->base.read = ina236_read;
+    s->base.write = ina236_write;
+}
+
+static const TypeInfo ina236_types[] = {
+    {
+        .name           = TYPE_I2C_INA236A,
+        .parent         = TYPE_DEVICE,
+        .instance_size  = sizeof(ina236_state),
+        .instance_init  = ina236_init,
+    }
+};
+
+DEFINE_TYPES(ina236_types)
+
