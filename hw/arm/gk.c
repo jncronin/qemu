@@ -41,6 +41,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 #define TYPE_STM32MP2_RCC "stm32mp2-rcc"
 #define TYPE_STM32MP2_TIM "stm32mp2-tim"
 #define TYPE_STM32MP2_RTC "stm32mp2-rtc"
+#define TYPE_STM32MP2_I2C "stm32mp2-i2c"
 
 #define FLASH_SIZE (4 * MiB)
 
@@ -77,6 +78,15 @@ struct Stm32MP2RTCState {
     MemoryRegion mmio;
 };
 
+struct Stm32MP2I2CState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    qemu_irq irq;
+};
+
 struct TIMInit
 {
     int id;
@@ -109,6 +119,17 @@ static const struct TIMInit timinits[] = {
     { 2, 0x40000000, 105 },
 };
 
+static const struct TIMInit i2cinits[] = {
+    { 8, 0x46040000, 212 },
+    { 7, 0x40180000, 210 },
+    { 6, 0x40170000, 208 },
+    { 5, 0x40160000, 181 },
+    { 4, 0x40150000, 168 },
+    { 3, 0x40140000, 137 },
+    { 2, 0x40130000, 110 },
+    { 1, 0x40120000, 108 }
+};
+
 struct GKMachineState {
     /*< private >*/
     MachineState parent_obj;
@@ -125,6 +146,7 @@ struct GKMachineState {
     struct Stm32MP2RCCState rcc;
     struct Stm32MP2TIMState tims[sizeof(timinits) / sizeof(timinits[0])];
     struct Stm32MP2RTCState rtc;
+    struct Stm32MP2I2CState i2cs[sizeof(i2cinits) / sizeof(i2cinits[0])];
 
     DeviceState *gic;
 };
@@ -336,6 +358,21 @@ static void gk_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "rtc", &mc->rtc, TYPE_STM32MP2_RTC);
     sysbus_realize(SYS_BUS_DEVICE(&mc->rtc), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->rtc), 0, 0x46000000);
+
+    for(unsigned i = 0; i < sizeof(i2cinits) / sizeof(i2cinits[0]); i++)
+    {
+        int id = i2cinits[i].id;
+        g_autofree char *str_i2cname = g_strdup_printf("I2C%d", id);
+
+        object_initialize_child(OBJECT(machine), str_i2cname, &mc->i2cs[i], TYPE_STM32MP2_I2C);
+        qdev_prop_set_int32(DEVICE(&mc->i2cs[i]), "id", id);
+
+        sysbus_realize(SYS_BUS_DEVICE(&mc->i2cs[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->i2cs[i]), 0, i2cinits[i].base);
+
+        sysbus_connect_irq(SYS_BUS_DEVICE(&mc->i2cs[i]), 0,
+            qdev_get_gpio_in(DEVICE(mc->gic), i2cinits[i].gic_irq));
+    }
 
     mc->binfo.ram_size = 1 * GiB;
     arm_load_kernel(&mc->cpu[0].core, machine, &mc->binfo);
@@ -850,7 +887,7 @@ static void stm32mp2_RTC_class_init(ObjectClass *class,
                                             const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(class);
-    device_class_set_props(dc, stm32mp2_tim_properties);
+    (void)dc;
 }
 
 static const TypeInfo stm32mp2_RTC_types[] = {
@@ -865,3 +902,89 @@ static const TypeInfo stm32mp2_RTC_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_RTC_types)
+
+/* STM32MP2 I2C */
+struct Stm32MP2I2CClass
+{
+    SysBusDeviceClass parent_class;
+};
+
+OBJECT_DECLARE_TYPE(Stm32MP2I2CState, Stm32MP2I2CClass,
+                    STM32MP2_I2C)
+
+static const Property stm32mp2_I2C_properties[] = {
+    DEFINE_PROP_INT32("id", Stm32MP2I2CState, id, 0),
+};
+
+static void stm32mp2_I2C_write(void *opaque, hwaddr addr,
+                                  uint64_t val64, unsigned int size)
+{
+    Stm32MP2I2CState *s = opaque;
+    (void)s;
+
+    fprintf(stderr, "I2C: write %x to %p\n", (unsigned)val64, (void *)addr);
+}
+
+static uint64_t stm32mp2_I2C_read(void *opaque, hwaddr addr,
+                                     unsigned int size)
+{
+    Stm32MP2I2CState *s = opaque;
+    (void)s;
+    
+    switch(addr)
+    {
+        default:
+            break;
+    }
+
+    fprintf(stderr, "I2C: read from %p unimplemented\n",
+        (void *)addr);
+    return 0;
+}
+
+static const MemoryRegionOps stm32mp2_I2C_ops = {
+    .read = stm32mp2_I2C_read,
+    .write = stm32mp2_I2C_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+    .impl = {
+        .max_access_size = 4,
+        .min_access_size = 4,
+        .unaligned = false
+    },
+};
+
+static void stm32mp2_I2C_init(Object *obj)
+{
+    Stm32MP2I2CState *s = STM32MP2_I2C(obj);
+
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+
+    memory_region_init_io(&s->mmio, obj, &stm32mp2_I2C_ops, s,
+                          TYPE_STM32MP2_I2C, 0x400);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
+}
+
+static void stm32mp2_I2C_class_init(ObjectClass *class,
+                                            const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(class);
+    device_class_set_props(dc, stm32mp2_I2C_properties);
+}
+
+static const TypeInfo stm32mp2_I2C_types[] = {
+    {
+        .name           = TYPE_STM32MP2_I2C,
+        .parent         = TYPE_SYS_BUS_DEVICE,
+        .instance_size  = sizeof(Stm32MP2I2CState),
+        .instance_init  = stm32mp2_I2C_init,
+        .class_size     = sizeof(Stm32MP2I2CClass),
+        .class_init     = stm32mp2_I2C_class_init,
+    }
+};
+
+DEFINE_TYPES(stm32mp2_I2C_types)
