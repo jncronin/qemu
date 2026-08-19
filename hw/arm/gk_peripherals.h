@@ -132,6 +132,9 @@ struct Stm32MP2LTDCState {
 
     uint32_t sscr, bpcr, awcr, twcr, gcr, srcr, gccr, bccr, ier, isr, lipcr;
     qemu_irq irq;
+
+    QEMUBH *resize_bh;
+    uint32_t new_w, new_h;
 };
 
 #endif

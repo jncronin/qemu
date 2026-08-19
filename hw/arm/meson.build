@@ -40,7 +40,8 @@ arm_common_ss.add(when: 'CONFIG_GK', if_true: files(
   'gk_rcc.c',
   'gk_rtc.c',
   'gk_tim.c',
-  'gk_i2c.c'
+  'gk_i2c.c',
+  'gk_ltdc.c'
 ))
 arm_common_ss.add(when: 'CONFIG_STM32F100_SOC', if_true: files('stm32f100_soc.c'))
 arm_common_ss.add(when: 'CONFIG_STM32F205_SOC', if_true: files('stm32f205_soc.c'))

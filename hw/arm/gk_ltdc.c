@@ -19,6 +19,7 @@ static bool ltdc_update_display(void *opaque);
 static void tim_cb(void *, enum ClockEvent);
 static void ltdc_update_shadow_regs(struct Stm32MP2LTDCState *ltdc, struct Stm32MP2LTDCLayer *l);
 static void ltdc_update_size(struct Stm32MP2LTDCState *ltdc);
+static void ltdc_update_size_main_thread(void *);
 
 static const GraphicHwOps ltdc_gfx_ops = {
     .invalidate  = ltdc_invalidate_display,
@@ -195,6 +196,7 @@ static void stm32mp2_LTDC_init(Object *obj)
     s->clk_out = qdev_init_clock_out(DEVICE(s), "clk_out");
     clock_set_callback(s->clk_out, tim_cb, s, ClockUpdate);
     s->con = qemu_graphic_console_create(DEVICE(obj), 0, &ltdc_gfx_ops, s);
+    s->resize_bh = qemu_bh_new(ltdc_update_size_main_thread, s);
 }
 
 static void stm32mp2_LTDC_class_init(ObjectClass *class,
@@ -222,13 +224,39 @@ DEFINE_TYPES(stm32mp2_LTDC_types)
 
 static void ltdc_invalidate_display(void * opaque)
 {
-
+    fprintf(stderr, "LTDC: INVALIDATE\n");
 }
+
+static uint32_t col = 0xff0000ff;
 
 static bool ltdc_update_display(void *opaque)
 {
+    Stm32MP2LTDCState *s = (Stm32MP2LTDCState *)opaque;
 
+    DisplaySurface *surface = qemu_console_surface(s->con);
+    (void)surface;
 
+    if(!(s->gcr & 0x1))
+        return true;
+    
+    uint8_t *data = surface_data(surface);
+    size_t stride = surface_stride(surface);
+    size_t nlines = surface_height(surface);
+    size_t width = surface_width(surface);
+
+    for(size_t y = 0; y < nlines; y++)
+    {
+        uint32_t *line = (uint32_t *)(data + y * stride);
+
+        for(size_t x = 0; x < width; x++)
+        {
+            line[x] = col;
+        }
+    }
+
+    col += 0x100;
+
+    qemu_console_update(s->con, 0, 0, width, nlines);
 
     return true;        // update done synchronously
 }
@@ -269,6 +297,17 @@ void ltdc_update_size(struct Stm32MP2LTDCState *s)
         uint32_t new_w = a_w - b_w;
         uint32_t new_h = a_h - b_h;
         fprintf(stderr, "LTDC: resize to %u x %u\n", new_w, new_h);
-        qemu_console_resize(s->con, new_w, new_h);
+        s->new_w = new_w;
+        s->new_h = new_h;
+
+        // schedule the resize to happen on the main thread
+        qemu_bh_schedule(s->resize_bh);
     }
+}
+
+void ltdc_update_size_main_thread(void *opaque)
+{
+    Stm32MP2LTDCState *s = (Stm32MP2LTDCState *)opaque;
+    qemu_console_resize(s->con, s->new_w, s->new_h);
+    qemu_console_update(s->con, 0, 0, s->new_w, s->new_h);
 }
