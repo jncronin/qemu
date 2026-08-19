@@ -45,7 +45,7 @@ struct Stm32MP2UsartState {
 };
 
 struct Stm32MP2PLLState {
-    SysBusDevice parent_obj;
+    DeviceState parent_obj;
 
     uint64_t input_freq;
     uint64_t output_freq;
