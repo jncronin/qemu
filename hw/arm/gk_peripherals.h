@@ -1,0 +1,113 @@
+#ifndef GK_PERIPHERALS_H
+#define GK_PERIPHERALS_H
+
+#include "qemu/osdep.h"
+#include "qemu/units.h"
+#include "qemu/cutils.h"
+#include "qapi/error.h"
+#include "qapi/visitor.h"
+#include "hw/arm/machines-qom.h"
+#include "hw/arm/raspi_platform.h"
+#include "hw/core/registerfields.h"
+#include "qemu/error-report.h"
+#include "system/device_tree.h"
+#include "hw/core/boards.h"
+#include "hw/core/loader.h"
+#include "hw/arm/boot.h"
+#include "qom/object.h"
+#include "target/arm/cpu.h"
+#include "hw/misc/unimp.h"
+#include "chardev/char-fe.h"
+#include "chardev/char-serial.h"
+#include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-properties-system.h"
+#include "hw/block/flash.h"
+#include "system/block-backend.h"
+#include "hw/core/ptimer.h"
+#include "hw/core/irq.h"
+#include "hw/core/qdev-clock.h"
+#include "hw/intc/arm_gic.h"
+#include "hw/arm/bsa.h"
+#include "gk_i2cdevs.h"
+
+#define TYPE_STM32MP2_USART "stm32mp2-usart"
+#define TYPE_STM32MP2_RCC "stm32mp2-rcc"
+#define TYPE_STM32MP2_TIM "stm32mp2-tim"
+#define TYPE_STM32MP2_RTC "stm32mp2-rtc"
+#define TYPE_STM32MP2_I2C "stm32mp2-i2c"
+#define TYPE_STM32MP2_PWR "stm32mp2-pwr"
+#define TYPE_STM32MP2_PLL "stm32mp2-pll"
+
+struct Stm32MP2UsartState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+    CharFrontend chr;
+};
+
+struct Stm32MP2PLLState {
+    SysBusDevice parent_obj;
+
+    uint64_t input_freq;
+    uint64_t output_freq;
+    Clock *clk_out;
+};
+
+struct Stm32MP2RCCState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    uint32_t regs[65336/4];
+
+    struct Stm32MP2PLLState pll48[5];
+};
+
+struct Stm32MP2TIMState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t is_lp;
+    int32_t id;
+    uint64_t input_freq;
+
+    ptimer_state *pt;
+
+    uint32_t cr1, cr2, dier, sr, psc, arr;
+
+    qemu_irq irq;
+};
+
+struct Stm32MP2RTCState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+};
+
+enum i2cstate
+{
+    i2c_Reset, i2c_M_Addressed, i2c_M_Data
+};
+
+struct Stm32MP2I2CState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    qemu_irq irq;
+
+    uint32_t cr1, cr2, isr, timingr, rxdr;
+
+    struct i2c_device *devs[256];
+
+    enum i2cstate state;
+};
+
+struct Stm32MP2PWRState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    uint32_t regs[0x400 / 4];
+};
+
+#endif
