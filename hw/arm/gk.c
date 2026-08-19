@@ -1141,11 +1141,14 @@ static void i2c_send_stop(Stm32MP2I2CState *s)
     unsigned int i2caddr = i2c_cr2_to_addr(s->cr2);
     if(s->devs[i2caddr] && s->devs[i2caddr]->stop)
         s->devs[i2caddr]->stop(s->devs[i2caddr]);
+    s->isr |= 1U << 5;      // set STOPF
+    s->isr &= ~(1U << 6);       // clear TC
 }
 
 static uint32_t i2c_read_data(Stm32MP2I2CState *s)
 {
     uint32_t n_left = (s->cr2 >> 16) & 0xffU;
+    //fprintf(stderr, "I2C: read with n_left: %u\n", n_left);
     if(n_left && (s->cr2 & (0x1 << 10)))        // ensure wrn set
     {
         // get data from slave
@@ -1157,6 +1160,7 @@ static uint32_t i2c_read_data(Stm32MP2I2CState *s)
         s->isr |= 1U << 2;
 
         n_left--;
+        //fprintf(stderr, "I2C: n_left->: %u\n", n_left);
 
         // program new nbytes
         s->cr2 = (s->cr2 & ~(0xffU << 16)) | (n_left << 16);
@@ -1167,17 +1171,20 @@ static uint32_t i2c_read_data(Stm32MP2I2CState *s)
             {
                 // autoend - send stop
                 i2c_send_stop(s);
+                //fprintf(stderr, "I2C: autoend, send stop\n");
             }
             else
             {
                 // no autoend, set tc
                 s->isr |= 1U << 6;
+                //fprintf(stderr, "I2C: set TC\n");
             }
 
             if(s->cr2 & (1U << 24))
             {
                 // reload, set tcr
                 s->isr |= 1U << 7;
+                //fprintf(stderr, "I2C: set TCR\n");
             }
         }
     }
@@ -1300,11 +1307,15 @@ static void stm32mp2_I2C_write(void *opaque, hwaddr addr,
                             s->isr |= 0x3u;  // set txis + txe
                         }
                     }
+                    else
+                    {
+                        s->cr2 &= ~(1U << 13);  // clear start
+                        s->isr |= (1U << 4);    // NACKF
+                    }
                 }
             }
             if(val64 & (1U << 14))
             {
-                s->isr &= ~(1U << 6);       // clear TC
                 i2c_send_stop(s);
                 s->cr2 &= ~(1U << 14);
             }
