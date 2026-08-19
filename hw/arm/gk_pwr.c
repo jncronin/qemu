@@ -34,6 +34,32 @@ static void stm32mp2_PWR_write(void *opaque, hwaddr addr,
             }
             break;
 
+        case 0x18:
+            {
+                // CR7
+                uint32_t settable = 0x3000101;
+                s->regs[0x18/4] = (s->regs[0x18/4] & ~settable) |
+                    (settable & (uint32_t)val64);
+
+                // duplicate bit 0 to bit 16
+                s->regs[0x18/4] = (s->regs[0x18/4] & ~(0x1U << 16)) |
+                    ((s->regs[0x18/4] & 0x1U) << 16);
+            }
+            break;
+
+        case 0x1c:
+            {
+                // CR8
+                uint32_t settable = 0x3000101;
+                s->regs[0x1c/4] = (s->regs[0x1c/4] & ~settable) |
+                    (settable & (uint32_t)val64);
+
+                // duplicate bit 0 to bit 16
+                s->regs[0x1c/4] = (s->regs[0x1c/4] & ~(0x1U << 16)) |
+                    ((s->regs[0x1c/4] & 0x1U) << 16);
+            }
+            break;
+
         default:
             fprintf(stderr, "PWR: write %x to %p\n", (unsigned)val64, (void *)addr);
     }
