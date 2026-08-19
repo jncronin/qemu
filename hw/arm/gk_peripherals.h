@@ -113,11 +113,24 @@ struct Stm32MP2PWRState {
     uint32_t regs[0x400 / 4];
 };
 
+struct Stm32MP2LTDCLayerRegs
+{
+    uint32_t rcr, cr, whpcr, wvpcr, ckcr, pfcr, cacr, dccr, bfcr, blcr, pcr,
+        cfbar, cfblr, cfblnr, afba0r, afba1r, afblr, afblnr, sisr, sosr, svsfr, svspr,
+        shsfr, shspr, cyr0r, cyr1r, fpf0r, fpf1r;
+};
+
+struct Stm32MP2LTDCState;
+
 struct Stm32MP2LTDCLayer
 {
-    // These (with some CLUT exceptions) all need shadow registers
+    // These, with the exception of clutwr, are shadowed
+    struct Stm32MP2LTDCLayerRegs r, sr;
+    uint32_t clut[256];
 
-    // TODO
+    SDL_Texture *t;
+    QEMUBH *resize_bh;
+    struct Stm32MP2LTDCState *s;
 };
 
 struct Stm32MP2LTDCState {
