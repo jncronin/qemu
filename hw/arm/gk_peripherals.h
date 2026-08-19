@@ -29,6 +29,7 @@
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
 #include "ui/console.h"
+#include "ui/sdl2.h"
 #include "gk_i2cdevs.h"
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
@@ -135,6 +136,10 @@ struct Stm32MP2LTDCState {
 
     QEMUBH *resize_bh;
     uint32_t new_w, new_h;
+
+    SDL_Window *w;
+    SDL_Renderer *r;
+    SDL_Texture *t;
 };
 
 #endif

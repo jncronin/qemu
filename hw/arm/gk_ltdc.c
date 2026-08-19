@@ -1,5 +1,6 @@
 #include "gk_peripherals.h"
 #include "ui/console.h"
+#include "ui/sdl2.h"
 
 /* STM32MP2 LTDC */
 struct Stm32MP2LTDCClass
@@ -197,6 +198,18 @@ static void stm32mp2_LTDC_init(Object *obj)
     clock_set_callback(s->clk_out, tim_cb, s, ClockUpdate);
     s->con = qemu_graphic_console_create(DEVICE(obj), 0, &ltdc_gfx_ops, s);
     s->resize_bh = qemu_bh_new(ltdc_update_size_main_thread, s);
+
+    s->w = SDL_CreateWindow("", 0, 0, 800, 480, SDL_WINDOW_HIDDEN);
+    s->r = SDL_CreateRenderer(s->w, -1, SDL_RENDERER_TARGETTEXTURE);
+    s->t = NULL;
+    if(!s->w)
+    {
+        fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+    }
+    if(!s->r)
+    {
+        fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+    }
 }
 
 static void stm32mp2_LTDC_class_init(ObjectClass *class,
@@ -238,21 +251,37 @@ static bool ltdc_update_display(void *opaque)
 
     if(!(s->gcr & 0x1))
         return true;
+    if(!s->t)
+        return true;
+
+    // Render the background and the various layers to the texture
+    //SDL_SetRenderDrawColor(s->r,
+    //    (Uint8)((s->bccr >> 16) & 0xffU), 
+    //    (Uint8)((s->bccr >> 8) & 0xffU), 
+    //    (Uint8)((s->bccr >> 0) & 0xffU),
+    //    0xffu);
+    SDL_SetRenderDrawColor(s->r,
+        (Uint8)((col >> 16) & 0xffU), 
+        (Uint8)((col >> 8) & 0xffU), 
+        (Uint8)((col >> 0) & 0xffU),
+        0xffu);
+
+    SDL_RenderClear(s->r);
+
+    // Blend layers with scaling
+    for(unsigned int i = 0; i < 3; i++)
+    {
+        
+    }
+
+    // Copy to offscreen buffer (annoyingly this is again converted to texture in qemu sdl2 code)
     
     uint8_t *data = surface_data(surface);
     size_t stride = surface_stride(surface);
     size_t nlines = surface_height(surface);
     size_t width = surface_width(surface);
 
-    for(size_t y = 0; y < nlines; y++)
-    {
-        uint32_t *line = (uint32_t *)(data + y * stride);
-
-        for(size_t x = 0; x < width; x++)
-        {
-            line[x] = col;
-        }
-    }
+    SDL_RenderReadPixels(s->r, NULL, 0, data, stride);
 
     col += 0x100;
 
@@ -310,4 +339,66 @@ void ltdc_update_size_main_thread(void *opaque)
     Stm32MP2LTDCState *s = (Stm32MP2LTDCState *)opaque;
     qemu_console_resize(s->con, s->new_w, s->new_h);
     qemu_console_update(s->con, 0, 0, s->new_w, s->new_h);
+
+    // Now create a new texture for us to render to in an off-screen buffer
+    if(s->t)
+    {
+        SDL_DestroyTexture(s->t);
+        s->t = NULL;
+    }
+    DisplaySurface *surface = qemu_console_surface(s->con);
+    pixman_format_code_t fmt = surface_format(surface);
+    uint32_t sdl_fmt = 0;
+    switch(fmt)
+    {
+        case PIXMAN_a8r8g8b8:
+            sdl_fmt = SDL_PIXELFORMAT_ARGB8888;
+            break;
+        case PIXMAN_x8r8g8b8:
+            sdl_fmt = SDL_PIXELFORMAT_XRGB8888;
+            break;
+        case PIXMAN_a8b8g8r8:
+            sdl_fmt = SDL_PIXELFORMAT_ABGR8888;
+            break;
+        case PIXMAN_x8b8g8r8:
+            sdl_fmt = SDL_PIXELFORMAT_XBGR8888;
+            break;
+        case PIXMAN_b8g8r8a8:
+            sdl_fmt = SDL_PIXELFORMAT_BGRA8888;
+            break;
+        case PIXMAN_b8g8r8x8:
+            sdl_fmt = SDL_PIXELFORMAT_BGRX8888;
+            break;
+        case PIXMAN_r8g8b8a8:
+            sdl_fmt = SDL_PIXELFORMAT_RGBA8888;
+            break;
+        case PIXMAN_r8g8b8x8:
+            sdl_fmt = SDL_PIXELFORMAT_RGBX8888;
+            break;
+        case PIXMAN_r8g8b8:
+            sdl_fmt = SDL_PIXELFORMAT_RGB888;
+            break;
+        case PIXMAN_b8g8r8:
+            sdl_fmt = SDL_PIXELFORMAT_BGR888;
+            break;
+        case PIXMAN_r5g6b5:
+            sdl_fmt = SDL_PIXELFORMAT_RGB565;
+            break;
+        case PIXMAN_a1r5g5b5:
+            sdl_fmt = SDL_PIXELFORMAT_ARGB1555;
+            break;
+        case PIXMAN_x1r5g5b5:
+            sdl_fmt = SDL_PIXELFORMAT_XRGB1555;
+            break;
+    }
+    
+    s->t = SDL_CreateTexture(s->r, sdl_fmt, SDL_TEXTUREACCESS_TARGET, s->new_w, s->new_h);
+    if(!s->t)
+    {
+        fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
+    }
+    else
+    {
+        SDL_SetRenderTarget(s->r, s->t);
+    }
 }
