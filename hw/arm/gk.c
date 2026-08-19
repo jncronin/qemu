@@ -103,6 +103,7 @@ struct GKMachineState {
     struct Stm32MP2RTCState rtc;
     struct Stm32MP2I2CState i2cs[sizeof(i2cinits) / sizeof(i2cinits[0])];
     struct Stm32MP2PWRState pwr;
+    struct Stm32MP2LTDCState ltdc;
 
     DeviceState *gic;
 };
@@ -333,6 +334,10 @@ static void gk_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "pwr", &mc->pwr, TYPE_STM32MP2_PWR);
     sysbus_realize(SYS_BUS_DEVICE(&mc->pwr), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->pwr), 0, 0x44210000);
+
+    object_initialize_child(OBJECT(machine), "ltdc", &mc->ltdc, TYPE_STM32MP2_LTDC);
+    sysbus_realize(SYS_BUS_DEVICE(&mc->ltdc), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->ltdc), 0, 0x48010000);
 
     // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);

@@ -37,6 +37,7 @@
 #define TYPE_STM32MP2_I2C "stm32mp2-i2c"
 #define TYPE_STM32MP2_PWR "stm32mp2-pwr"
 #define TYPE_STM32MP2_PLL "stm32mp2-pll"
+#define TYPE_STM32MP2_PLL "stm32mp2-ltdc"
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -108,6 +109,13 @@ struct Stm32MP2PWRState {
     int32_t id;
 
     uint32_t regs[0x400 / 4];
+};
+
+struct Stm32MP2LTDCState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
 };
 
 #endif
