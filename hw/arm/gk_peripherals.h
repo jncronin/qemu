@@ -28,6 +28,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
+#include "ui/console.h"
 #include "gk_i2cdevs.h"
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
@@ -37,7 +38,7 @@
 #define TYPE_STM32MP2_I2C "stm32mp2-i2c"
 #define TYPE_STM32MP2_PWR "stm32mp2-pwr"
 #define TYPE_STM32MP2_PLL "stm32mp2-pll"
-#define TYPE_STM32MP2_PLL "stm32mp2-ltdc"
+#define TYPE_STM32MP2_LTDC "stm32mp2-ltdc"
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -111,11 +112,26 @@ struct Stm32MP2PWRState {
     uint32_t regs[0x400 / 4];
 };
 
+struct Stm32MP2LTDCLayer
+{
+    // These (with some CLUT exceptions) all need shadow registers
+
+    // TODO
+};
+
 struct Stm32MP2LTDCState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
 
     int32_t id;
+
+    QemuConsole *con;
+    Clock *clk_out;
+
+    struct Stm32MP2LTDCLayer layers[3];
+
+    uint32_t sscr, bpcr, awcr, twcr, gcr, srcr, gccr, bccr, ier, isr, lipcr;
+    qemu_irq irq;
 };
 
 #endif
