@@ -56,6 +56,7 @@ static int absolute_enabled;
 static bool guest_cursor;
 static int guest_x, guest_y;
 static SDL_Cursor *guest_sprite;
+static SDL_Surface *icon;
 static Notifier mouse_mode_notifier;
 
 #define SDL2_REFRESH_INTERVAL_BUSY 10
@@ -806,6 +807,12 @@ static void sdl_cleanup(void)
     g_clear_pointer(&sdl2_console, g_free);
     sdl2_num_outputs = 0;
 
+    if(icon)
+    {
+        SDL_FreeSurface(icon);
+        icon = NULL;
+    }
+
     g_clear_pointer(&guest_sprite, SDL_FreeCursor);
     g_clear_pointer(&guest_sprite_surface, SDL_FreeSurface);
     g_clear_pointer(&sdl_cursor_hidden, SDL_FreeCursor);
@@ -903,7 +910,6 @@ static void sdl2_display_init(DisplayState *ds, DisplayOptions *o)
     uint8_t data = 0;
     int i;
     SDL_SysWMinfo info;
-    SDL_Surface *icon = NULL;
     char *dir;
 
     assert(o->type == DISPLAY_TYPE_SDL);
