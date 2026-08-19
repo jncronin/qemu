@@ -30,6 +30,7 @@
 #include "hw/arm/bsa.h"
 #include "ui/console.h"
 #include "ui/sdl2.h"
+#include "hw/sd/sd.h"
 #include "gk_i2cdevs.h"
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
@@ -40,6 +41,7 @@
 #define TYPE_STM32MP2_PWR "stm32mp2-pwr"
 #define TYPE_STM32MP2_PLL "stm32mp2-pll"
 #define TYPE_STM32MP2_LTDC "stm32mp2-ltdc"
+#define TYPE_STM32MP2_SDMMC "stm32mp2-sdmmc"
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -153,6 +155,21 @@ struct Stm32MP2LTDCState {
     SDL_Window *w;
     SDL_Renderer *r;
     SDL_Texture *t;
+};
+
+struct Stm32MP2SDMMCState
+{
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    qemu_irq irq;
+
+    uint32_t power, clkcr, argr, cmdr, respcmdr, resp[4], dtimer, dlenr, dctrl,
+        dcntr, star, icr, maskr, acktimer, fifothrr, idmactrlr, idmabsizer,
+        idmabaser, idmalar, idmabar, fifo[16];
+    SDBus sdbus;
 };
 
 #endif

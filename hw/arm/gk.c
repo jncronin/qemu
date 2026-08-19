@@ -85,6 +85,12 @@ static const struct TIMInit i2cinits[] = {
     { 8, 0x46040000, 212 }
 };
 
+static const struct TIMInit sdmmcinits[] = {
+    { 1, 0x48220000, 123 },
+    { 2, 0x48230000, 197 },
+    { 3, 0x48240000, 214 }
+};
+
 struct GKMachineState {
     /*< private >*/
     MachineState parent_obj;
@@ -104,6 +110,7 @@ struct GKMachineState {
     struct Stm32MP2I2CState i2cs[sizeof(i2cinits) / sizeof(i2cinits[0])];
     struct Stm32MP2PWRState pwr;
     struct Stm32MP2LTDCState ltdc;
+    struct Stm32MP2SDMMCState sdmmc[sizeof(sdmmcinits) / sizeof(sdmmcinits[0])];
 
     DeviceState *gic;
 };
@@ -339,6 +346,21 @@ static void gk_machine_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&mc->ltdc), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->ltdc), 0, 0x48010000);
 
+    for(unsigned i = 0; i < sizeof(sdmmcinits) / sizeof(sdmmcinits[0]); i++)
+    {
+        int id = sdmmcinits[i].id;
+        g_autofree char *str_sdmmcname = g_strdup_printf("SDMMC%d", id);
+
+        object_initialize_child(OBJECT(machine), str_sdmmcname, &mc->sdmmc[i], TYPE_STM32MP2_SDMMC);
+        qdev_prop_set_int32(DEVICE(&mc->sdmmc[i]), "id", id);
+
+        sysbus_realize(SYS_BUS_DEVICE(&mc->sdmmc[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->sdmmc[i]), 0, sdmmcinits[i].base);
+
+        sysbus_connect_irq(SYS_BUS_DEVICE(&mc->sdmmc[i]), 0,
+            qdev_get_gpio_in(DEVICE(mc->gic), sdmmcinits[i].gic_irq));
+    }
+
     // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);
     object_property_add_child(OBJECT(&mc->i2cs[1]), "INA236@0x40", OBJECT(mc->i2cs[1].devs[0x40]));
@@ -351,6 +373,18 @@ static void gk_machine_init(MachineState *machine)
     mc->i2cs[1].devs[0x6b] = (struct i2c_device *)qdev_new(TYPE_I2C_BQ25601);
     object_property_add_child(OBJECT(&mc->i2cs[1]), "BQ25601@0x6B", OBJECT(mc->i2cs[1].devs[0x6b]));
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x6b]), NULL, &error_fatal);
+
+    // SD card
+    dinfo = drive_get(IF_SD, 0, 0);
+    BlockBackend *blk_sd = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+    BusState *sd_bus = qdev_get_child_bus(DEVICE(&mc->sdmmc[0]), "sd-bus");
+    if (sd_bus == NULL) {
+        error_report("No SD bus found in SOC object");
+        exit(1);
+    }
+    DeviceState *carddev = qdev_new(TYPE_SD_CARD);
+    qdev_prop_set_drive_err(carddev, "drive", blk_sd, &error_fatal);
+    qdev_realize_and_unref(carddev, sd_bus, &error_fatal);
 
     // kernel
     mc->binfo.ram_size = 1 * GiB;
