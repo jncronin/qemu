@@ -336,10 +336,15 @@ static void gk_machine_init(MachineState *machine)
 
     // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);
+    object_property_add_child(OBJECT(&mc->i2cs[1]), "INA236@0x40", OBJECT(mc->i2cs[1].devs[0x40]));
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x40]), NULL, &error_fatal);
+
     mc->i2cs[1].devs[0x36] = (struct i2c_device *)qdev_new(TYPE_I2C_MAX17048);
+    object_property_add_child(OBJECT(&mc->i2cs[1]), "MAX17048@0x36", OBJECT(mc->i2cs[1].devs[0x36]));
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x36]), NULL, &error_fatal);
+
     mc->i2cs[1].devs[0x6b] = (struct i2c_device *)qdev_new(TYPE_I2C_BQ25601);
+    object_property_add_child(OBJECT(&mc->i2cs[1]), "BQ25601@0x6B", OBJECT(mc->i2cs[1].devs[0x6b]));
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x6b]), NULL, &error_fatal);
 
     // kernel
