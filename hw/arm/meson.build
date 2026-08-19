@@ -33,7 +33,8 @@ arm_common_ss.add(when: 'CONFIG_RASPI', if_true: files(
   'raspi4b.c'
 ))
 arm_common_ss.add(when: 'CONFIG_GK', if_true: files(
-  'gk.c'
+  'gk.c',
+  'gk_i2cdevs.c'
 ))
 arm_common_ss.add(when: 'CONFIG_STM32F100_SOC', if_true: files('stm32f100_soc.c'))
 arm_common_ss.add(when: 'CONFIG_STM32F205_SOC', if_true: files('stm32f205_soc.c'))

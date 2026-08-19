@@ -33,6 +33,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
+#include "gk_i2cdevs.h"
 #include <time.h>
 
 #define TYPE_GK_MACHINE MACHINE_TYPE_NAME("gk")
@@ -46,26 +47,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 #define TYPE_STM32MP2_PWR "stm32mp2-pwr"
 #define TYPE_STM32MP2_PLL "stm32mp2-pll"
 
-#define TYPE_I2C_INA236A "ina236a"
-
 #define FLASH_SIZE (4 * MiB)
-
-struct i2c_device
-{
-    SysBusDevice parent_obj;
-
-    int (*start)(struct i2c_device *);
-    uint8_t (*read)(struct i2c_device *);
-    int (*write)(struct i2c_device *, uint8_t);
-    void (*stop)(struct i2c_device *);
-};
-
-struct ina236_state
-{
-    struct i2c_device base;
-    int bytes_since_start;
-    int reg_id;
-};
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -1528,89 +1510,3 @@ static const TypeInfo stm32mp2_PWR_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_PWR_types)
-
-// INA236
-OBJECT_DECLARE_SIMPLE_TYPE(ina236_state, I2C_INA236A)
-
-static int ina236_start(struct i2c_device *_d)
-{
-    struct ina236_state *d = (struct ina236_state *)_d;
-    d->bytes_since_start = 0;
-    return 0;
-}
-
-static void ina236_stop(struct i2c_device *)
-{ }
-
-static uint8_t ina236_read(struct i2c_device *_d)
-{
-    struct ina236_state *d = (struct ina236_state *)_d;
-    uint8_t ret = 0;
-
-    switch(d->reg_id)
-    {
-        case 0x3e*2:
-            ret = 0x54;
-            break;
-        case 0x3e*2+1:
-            ret = 0x49;
-            break;
-        case 0x3f*2:
-            ret = 0xa0;
-            break;
-        case 0x3f*2+1:
-            ret = 0x80;
-            break;
-        case 0x1*2:
-            ret = 0x7;
-            break;
-        case 0x1*2+1:
-            ret = 0xd0;
-            break;
-        case 0x2*2:
-            ret = 0x9;
-            break;
-        case 0x2*2+1:
-            ret = 0xc4;
-            break;
-    }
-
-    //fprintf(stderr, "INA236: reg %x%s: %x\n", d->reg_id / 2, (d->reg_id & 0x1) ? "L" : "H", ret);
-    d->reg_id++;
-
-    return ret;
-}
-
-static int ina236_write(struct i2c_device *_d, uint8_t v)
-{
-    struct ina236_state *d = (struct ina236_state *)_d;
-
-    if(d->bytes_since_start == 0)
-    {
-        d->reg_id = v * 2;
-    }
-    d->bytes_since_start++;
-
-    return 0;
-}
-
-static void ina236_init(Object *obj)
-{
-    ina236_state *s = I2C_INA236A(obj);
-    s->base.start = ina236_start;
-    s->base.stop = ina236_stop;
-    s->base.read = ina236_read;
-    s->base.write = ina236_write;
-}
-
-static const TypeInfo ina236_types[] = {
-    {
-        .name           = TYPE_I2C_INA236A,
-        .parent         = TYPE_DEVICE,
-        .instance_size  = sizeof(ina236_state),
-        .instance_init  = ina236_init,
-    }
-};
-
-DEFINE_TYPES(ina236_types)
-
