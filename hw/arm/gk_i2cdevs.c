@@ -85,3 +85,154 @@ static const TypeInfo ina236_types[] = {
 
 DEFINE_TYPES(ina236_types)
 
+// MAX17048
+OBJECT_DECLARE_SIMPLE_TYPE(MAX17048_state, I2C_MAX17048)
+
+static int MAX17048_start(struct i2c_device *_d)
+{
+    struct MAX17048_state *d = (struct MAX17048_state *)_d;
+    d->bytes_since_start = 0;
+    return 0;
+}
+
+static void MAX17048_stop(struct i2c_device *)
+{ }
+
+static uint8_t MAX17048_read(struct i2c_device *_d)
+{
+    struct MAX17048_state *d = (struct MAX17048_state *)_d;
+    uint8_t ret = 0;
+
+    switch(d->reg_id)
+    {
+        case 0x02:
+            ret = 0xc8;
+            break;
+        case 0x02+1:
+            ret = 0;
+            break;
+        case 0x04:
+            ret = 0x64;
+            break;
+        case 0x04+1:
+            ret = 0;
+            break;
+        case 0x16:
+            ret = 0;
+            break;
+        case 0x16+1:
+            ret = 0;
+            break;
+    }
+
+    //fprintf(stderr, "MAX17048: reg %x%s: %x\n", d->reg_id / 2, (d->reg_id & 0x1) ? "L" : "H", ret);
+    d->reg_id++;
+
+    return ret;
+}
+
+static int MAX17048_write(struct i2c_device *_d, uint8_t v)
+{
+    struct MAX17048_state *d = (struct MAX17048_state *)_d;
+
+    if(d->bytes_since_start == 0)
+    {
+        d->reg_id = v;
+    }
+    d->bytes_since_start++;
+
+    return 0;
+}
+
+static void MAX17048_init(Object *obj)
+{
+    MAX17048_state *s = I2C_MAX17048(obj);
+    s->base.start = MAX17048_start;
+    s->base.stop = MAX17048_stop;
+    s->base.read = MAX17048_read;
+    s->base.write = MAX17048_write;
+}
+
+static const TypeInfo MAX17048_types[] = {
+    {
+        .name           = TYPE_I2C_MAX17048,
+        .parent         = TYPE_DEVICE,
+        .instance_size  = sizeof(MAX17048_state),
+        .instance_init  = MAX17048_init,
+    }
+};
+
+DEFINE_TYPES(MAX17048_types)
+
+// BQ25601
+OBJECT_DECLARE_SIMPLE_TYPE(BQ25601_state, I2C_BQ25601)
+
+static int BQ25601_start(struct i2c_device *_d)
+{
+    struct BQ25601_state *d = (struct BQ25601_state *)_d;
+    d->bytes_since_start = 0;
+    return 0;
+}
+
+static void BQ25601_stop(struct i2c_device *)
+{ }
+
+static uint8_t BQ25601_read(struct i2c_device *_d)
+{
+    struct BQ25601_state *d = (struct BQ25601_state *)_d;
+    uint8_t ret = 0;
+
+    switch(d->reg_id)
+    {
+        case 0x08:
+            ret = 0x60;
+            break;
+        case 0x09:
+            ret = 0;
+            break;
+        case 0x0a:
+            ret = 0x80;
+            break;
+        case 0x0b:
+            ret = 0;
+            break;
+    }
+
+    //fprintf(stderr, "BQ25601: reg %x%s: %x\n", d->reg_id / 2, (d->reg_id & 0x1) ? "L" : "H", ret);
+    d->reg_id++;
+
+    return ret;
+}
+
+static int BQ25601_write(struct i2c_device *_d, uint8_t v)
+{
+    struct BQ25601_state *d = (struct BQ25601_state *)_d;
+
+    if(d->bytes_since_start == 0)
+    {
+        d->reg_id = v;
+    }
+    d->bytes_since_start++;
+
+    return 0;
+}
+
+static void BQ25601_init(Object *obj)
+{
+    BQ25601_state *s = I2C_BQ25601(obj);
+    s->base.start = BQ25601_start;
+    s->base.stop = BQ25601_stop;
+    s->base.read = BQ25601_read;
+    s->base.write = BQ25601_write;
+}
+
+static const TypeInfo BQ25601_types[] = {
+    {
+        .name           = TYPE_I2C_BQ25601,
+        .parent         = TYPE_DEVICE,
+        .instance_size  = sizeof(BQ25601_state),
+        .instance_init  = BQ25601_init,
+    }
+};
+
+DEFINE_TYPES(BQ25601_types)

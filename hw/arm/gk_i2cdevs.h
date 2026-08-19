@@ -30,6 +30,8 @@
 #include "hw/arm/bsa.h"
 
 #define TYPE_I2C_INA236A "ina236a"
+#define TYPE_I2C_MAX17048 "max17048"
+#define TYPE_I2C_BQ25601 "bq25601"
 
 struct i2c_device
 {
@@ -42,6 +44,20 @@ struct i2c_device
 };
 
 struct ina236_state
+{
+    struct i2c_device base;
+    int bytes_since_start;
+    int reg_id;
+};
+
+struct MAX17048_state
+{
+    struct i2c_device base;
+    int bytes_since_start;
+    int reg_id;
+};
+
+struct BQ25601_state
 {
     struct i2c_device base;
     int bytes_since_start;

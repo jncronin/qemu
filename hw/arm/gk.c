@@ -413,14 +413,13 @@ static void gk_machine_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&mc->pwr), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->pwr), 0, 0x44210000);
 
-    // i2c devices - need to assign to pointer of concrete type first to avoid sizeof() issue in object_initialize_child
+    // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);
-    //struct ina236_state *ina236 = NULL;
-    //object_initialize_child(OBJECT(&mc->i2cs[1]), "ina236a", ina236, TYPE_I2C_INA236A);
-    //mc->i2cs[1].devs[0x40] = &ina236->base;
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x40]), NULL, &error_fatal);
-    //init_ina236a(&mc->i2cs[1].devs[0x40]);
-    //init_max17048(&mc->i2cs[1].devs[0x36]);
+    mc->i2cs[1].devs[0x36] = (struct i2c_device *)qdev_new(TYPE_I2C_MAX17048);
+    qdev_realize(DEVICE(mc->i2cs[1].devs[0x36]), NULL, &error_fatal);
+    mc->i2cs[1].devs[0x6b] = (struct i2c_device *)qdev_new(TYPE_I2C_BQ25601);
+    qdev_realize(DEVICE(mc->i2cs[1].devs[0x6b]), NULL, &error_fatal);
 
     // kernel
     mc->binfo.ram_size = 1 * GiB;
