@@ -35,7 +35,7 @@
 
 struct i2c_device
 {
-    SysBusDevice parent_obj;
+    DeviceState parent_obj;
 
     int (*start)(struct i2c_device *);
     uint8_t (*read)(struct i2c_device *);
