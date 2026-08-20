@@ -178,6 +178,8 @@ struct Stm32MP2SDMMCState
     uint32_t tx_fifo_buf[512/4];
     unsigned int tx_fifo_user_ptr;
     unsigned int tx_fifo_data_size;
+
+    int irq_set;
 };
 
 #endif
