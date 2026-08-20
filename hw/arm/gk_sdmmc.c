@@ -61,7 +61,7 @@ static void stm32mp2_SDMMC_write(void *opaque, hwaddr addr,
             break;
         case 0x38:
             s->star = s->star & ~(uint32_t)(val64 & 0x1fe00fffu);
-            //fprintf(stderr, "SDMMC: ICR: %x -> STAR: %x\n", (uint32_t)val64, s->star);
+            fprintf(stderr, "SDMMC: ICR: %x -> STAR: %x\n", (uint32_t)val64, s->star);
             sdmmc_update_irq(s);
             break;
         case 0x3c:
@@ -388,6 +388,59 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
             // handle any remaining blocks via PIO
             sdmmc_read_block(s);
         }
+        else
+        {
+            // its a write
+
+            // if with idma - do the transfer direct from user memory
+            if(s->idmactrlr & 0x1)
+            {
+                uint32_t blk_size = 1U << ((s->dctrl >> 4) & 0xfu);
+                if(s->idmactrlr & 0x2)
+                {
+                    fprintf(stderr, "SDMMC: IDMA linked list not supported\n");
+                }
+                else
+                {
+                    if(s->dcntr % blk_size)
+                    {
+                        fprintf(stderr, "SDMMC: DLENR (%x) is not a multiple of blk_size (%x)\n",
+                            s->dcntr, blk_size);
+                        s->dcntr = 0;
+                        s->dctrl &= ~0x1u;
+                        s->star |= 1U << 27;    // idmate
+                        sdmmc_update_irq(s);
+                    }
+                    while(s->dcntr)
+                    {
+                        hwaddr hlen = blk_size;
+                        void *host_addr = address_space_map(&address_space_memory, (hwaddr)s->idmabaser, 
+                            &hlen, false, MEMTXATTRS_UNSPECIFIED);
+                        if(!host_addr)
+                        {
+                            fprintf(stderr, "SDMMC: couldn't get host address for idma: %x\n", s->idmabaser);
+                            s->star |= 1U << 27;        // idmate
+                            sdmmc_update_irq(s);
+                            break;
+                        }
+
+                        sdbus_write_data(&s->sdbus, host_addr, blk_size);
+
+                        address_space_unmap(&address_space_memory, host_addr, hlen, false, hlen);
+
+                        s->star |= 1U << 10;        // dbckend
+                        sdmmc_update_irq(s);
+
+                        s->idmabaser += blk_size;
+                        s->dcntr -= blk_size;
+                    }
+                    s->star |= 1U << 8;     // dataend
+                    s->dctrl &= ~0x1u;
+                    sdmmc_update_irq(s);
+                }
+            }
+            // if not, handle via writes to FIFOR
+        }
     }
 }
 
@@ -469,7 +522,7 @@ static void sdmmc_patch_star(struct Stm32MP2SDMMCState *s)
 static void sdmmc_update_irq(struct Stm32MP2SDMMCState *s)
 {
     uint32_t need_irq = s->star & s->maskr;
-    //fprintf(stderr, "SDMMC: update_irq: %x\n", need_irq);
+    fprintf(stderr, "SDMMC: update_irq: %x\n", need_irq);
     if(need_irq)
         qemu_set_irq(s->irq, 1);
     else
