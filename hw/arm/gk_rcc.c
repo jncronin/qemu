@@ -140,6 +140,10 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
                 s->regs[0x440 / 4] &= ~0x4;
             break;
 
+        case 0x830:
+            qemu_set_irq(s->sdmmc1_rst, val64 & 0x1);
+            break;
+
         case 0x1000:    // MUXSELCFGR
             {
                 uint64_t pll8sel = (val64 >> 16) & 0x3u;
@@ -222,6 +226,8 @@ static void stm32mp2_RCC_init(Object *obj)
         object_initialize_child(obj, str_pll, &s->pll48[id], TYPE_STM32MP2_PLL);
         qdev_realize(DEVICE(&s->pll48[id]), NULL, &error_fatal);
     }
+
+    qdev_init_gpio_out_named(DEVICE(obj), &s->sdmmc1_rst, "sdmmc1_rst", 1);
 }
 
 static void stm32mp2_RCC_class_init(ObjectClass *class,

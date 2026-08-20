@@ -17,6 +17,7 @@ static void sdmmc_send_command(struct Stm32MP2SDMMCState *s);
 static int sdmmc_read_block(struct Stm32MP2SDMMCState *s);
 static void sdmmc_patch_star(struct Stm32MP2SDMMCState *s);
 static void sdmmc_update_irq(struct Stm32MP2SDMMCState *s);
+static void sdmmc_reset(void *opaque, int n, int level);
 
 static void stm32mp2_SDMMC_write(void *opaque, hwaddr addr,
                                   uint64_t val64, unsigned int size)
@@ -241,6 +242,7 @@ static void stm32mp2_SDMMC_init(Object *obj)
                           TYPE_STM32MP2_SDMMC, 0x400);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_in_named(DEVICE(obj), sdmmc_reset, "rst", 1);
 }
 
 static void stm32mp2_SDMMC_class_init(ObjectClass *class,
@@ -469,7 +471,6 @@ int sdmmc_read_block(struct Stm32MP2SDMMCState *s)
         s->rx_fifo_user_ptr = 0;
         s->rx_fifo_data_size = blk_size;
         s->star |= 1U << 10;    // dbckend
-        sdmmc_update_irq(s);
     }
     else if(s->dcntr != 0)
     {
@@ -480,9 +481,9 @@ int sdmmc_read_block(struct Stm32MP2SDMMCState *s)
     if(s->dcntr == 0)
     {
         s->star |= 1U << 8;     // dataend
-        sdmmc_update_irq(s);
         s->dcntr &= ~0x3u;      // clear dtdir and dten
     }
+    sdmmc_update_irq(s);
     return (int)bread;
 }
 
@@ -522,15 +523,61 @@ static void sdmmc_patch_star(struct Stm32MP2SDMMCState *s)
 static void sdmmc_update_irq(struct Stm32MP2SDMMCState *s)
 {
     uint32_t need_irq = s->star & s->maskr;
-    //fprintf(stderr, "SDMMC: update_irq: %x\n", need_irq);
     if(need_irq && !s->irq_set)
     {
+        fprintf(stderr, "SDMMC: update_irq: %x -> 1\n", need_irq);
         s->irq_set = 1;
         qemu_set_irq(s->irq, 1);
     }
     else if(!need_irq && s->irq_set)
     {
+        fprintf(stderr, "SDMMC: update_irq: %x -> 0\n", need_irq);
         s->irq_set = 0;
         qemu_set_irq(s->irq, 0);
+    }
+}
+
+static void sdmmc_reset(void *opaque, int n, int level)
+{
+    struct Stm32MP2SDMMCState *s = (struct Stm32MP2SDMMCState *)opaque;
+    (void)s;
+    if(level)
+    {
+        fprintf(stderr, "SDMMC: RESET: %d\n", level);
+        
+        s->power = 0;
+        s->clkcr = 0;
+        s->argr = 0;
+        s->cmdr = 0;
+        s->respcmdr = 0;
+        s->resp[0] = 0;
+        s->resp[1] = 0;
+        s->resp[2] = 0;
+        s->resp[3] = 0;
+        s->dtimer = 0;
+        s->dlenr = 0;
+        s->dctrl = 0;
+        s->dcntr = 0;
+        s->star = 0;
+        s->icr = 0;
+        s->maskr = 0;
+        s->acktimer = 0;
+        s->fifothrr = 0;
+        s->idmactrlr = 0;
+        s->idmabsizer = 0;
+        s->idmabaser = 0;
+        s->idmalar = 0;
+        s->idmabar = 0;
+        memset(s->rx_fifo_buf, 0, sizeof(s->rx_fifo_buf));
+        memset(s->tx_fifo_buf, 0, sizeof(s->tx_fifo_buf));
+        s->rx_fifo_data_size = 0;
+        s->rx_fifo_user_ptr = 0;
+        s->tx_fifo_data_size = 0;
+        s->tx_fifo_user_ptr = 0;
+        if(s->irq_set)
+        {
+            s->irq_set = 0;
+            qemu_set_irq(s->irq, 0);
+        }
     }
 }

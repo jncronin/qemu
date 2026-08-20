@@ -360,6 +360,8 @@ static void gk_machine_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(&mc->sdmmc[i]), 0,
             qdev_get_gpio_in(DEVICE(mc->gic), sdmmcinits[i].gic_irq));
     }
+    qdev_connect_gpio_out_named(DEVICE(&mc->rcc), "sdmmc1_rst", 0,
+        qdev_get_gpio_in_named(DEVICE(&mc->sdmmc[0]), "rst", 0));
 
     // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);

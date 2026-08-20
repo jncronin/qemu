@@ -64,6 +64,8 @@ struct Stm32MP2RCCState {
     uint32_t regs[65336/4];
 
     struct Stm32MP2PLLState pll48[5];
+
+    qemu_irq sdmmc1_rst;
 };
 
 struct Stm32MP2TIMState {
