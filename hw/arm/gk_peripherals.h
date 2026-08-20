@@ -168,8 +168,16 @@ struct Stm32MP2SDMMCState
 
     uint32_t power, clkcr, argr, cmdr, respcmdr, resp[4], dtimer, dlenr, dctrl,
         dcntr, star, icr, maskr, acktimer, fifothrr, idmactrlr, idmabsizer,
-        idmabaser, idmalar, idmabar, fifo[16];
+        idmabaser, idmalar, idmabar;
     SDBus sdbus;
+
+    uint32_t rx_fifo_buf[512/4];
+    unsigned int rx_fifo_user_ptr;
+    unsigned int rx_fifo_data_size;
+
+    uint32_t tx_fifo_buf[512/4];
+    unsigned int tx_fifo_user_ptr;
+    unsigned int tx_fifo_data_size;
 };
 
 #endif
