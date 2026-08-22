@@ -24,10 +24,10 @@ class Symbol:
         self.file = file
         self.line = line
 
-def get_symbols(elf_file):
+def get_symbols(elf_file, nm_binary):
     symbols=[]
     try:
-        out = subprocess.check_output(['nm', '--print-size', elf_file],
+        out = subprocess.check_output([nm_binary, '--print-size', elf_file],
                                       stderr=subprocess.STDOUT,
                                       text=True)
     except subprocess.CalledProcessError as e:
@@ -51,10 +51,10 @@ def get_symbols(elf_file):
     symbols.sort(key = lambda x: x.addr)
     return symbols
 
-def find_symbols_locations(elf_file, symbols):
+def find_symbols_locations(elf_file, symbols, addr2line_binary):
     addresses = '\n'.join([hex(x.full_addr) for x in symbols])
     try:
-        out = subprocess.check_output(['addr2line', '--exe', elf_file],
+        out = subprocess.check_output([addr2line_binary, '--exe', elf_file],
                                       stderr=subprocess.STDOUT,
                                       input=addresses, text=True)
     except subprocess.CalledProcessError as e:
@@ -78,11 +78,11 @@ def find_symbols_locations(elf_file, symbols):
         s.set_loc(file, line)
 
 class BinaryFile:
-    def __init__(self, path, map_offset):
+    def __init__(self, path, map_offset, nm_binary, addr2line_binary):
         self.fullpath = os.path.realpath(path)
         self.map_offset = map_offset
-        self.symbols = get_symbols(self.fullpath)
-        find_symbols_locations(self.fullpath, self.symbols)
+        self.symbols = get_symbols(self.fullpath, nm_binary)
+        find_symbols_locations(self.fullpath, self.symbols, addr2line_binary)
 
     def path(self):
         return self.fullpath
@@ -177,6 +177,12 @@ def main():
     parser.add_argument('--prefix-symbols',
                         help='prepend binary name to symbols',
                         action=argparse.BooleanOptionalAction)
+    parser.add_argument('--nm-binary',
+                        help='name of nm binary to use',
+                        default='nm')
+    parser.add_argument('--addr2line-binary',
+                        help='name of addr2line binary to use',
+                        default='addr2line')
     args = parser.parse_args()
 
     if not os.path.exists('uftrace.data'):
@@ -185,7 +191,7 @@ def main():
     binaries = []
     for file in args.elf_file:
         path, offset = parse_parameter(file)
-        b = BinaryFile(path, offset)
+        b = BinaryFile(path, offset, args.nm_binary, args.addr2line_binary)
         binaries.append(b)
     binaries.sort(key = lambda b: b.addr_end());
 
