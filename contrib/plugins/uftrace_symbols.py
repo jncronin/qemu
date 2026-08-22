@@ -67,7 +67,8 @@ def find_symbols_locations(elf_file, symbols):
     assert len(out) == len(symbols)
     for i in range(len(symbols)):
         s = symbols[i]
-        file, line = out[i].split(':')
+
+        file, line = out[i].rsplit(':',1)
         # addr2line may return 'line (discriminator [0-9]+)' sometimes,
         # remove this to keep only line number.
         if line == '?':
