@@ -25,6 +25,8 @@ static void stm32mp2_SDMMC_write(void *opaque, hwaddr addr,
     Stm32MP2SDMMCState *s = opaque;
     (void)s;
 
+    qemu_mutex_lock(&s->m);
+
     switch(addr)
     {
         case 0:
@@ -113,6 +115,8 @@ static void stm32mp2_SDMMC_write(void *opaque, hwaddr addr,
             fprintf(stderr, "SDMMC: write %x to %p\n", (unsigned)val64, (void *)addr);
             break;
     }
+
+    qemu_mutex_unlock(&s->m);
 }
 
 static uint64_t stm32mp2_SDMMC_read(void *opaque, hwaddr addr,
@@ -120,57 +124,83 @@ static uint64_t stm32mp2_SDMMC_read(void *opaque, hwaddr addr,
 {
     Stm32MP2SDMMCState *s = opaque;
     (void)s;
+    uint32_t ret = 0;
+
+    qemu_mutex_lock(&s->m);
 
     switch(addr)
     {
         case 0:
-            return s->power;
+            ret = s->power;
+            break;
         case 0x4:
-            return s->clkcr;
+            ret = s->clkcr;
+            break;
         case 0x8:
-            return s->argr;
+            ret = s->argr;
+            break;
         case 0xc:
-            return s->cmdr;
+            ret = s->cmdr;
+            break;
         case 0x10:
-            return s->respcmdr;
+            ret = s->respcmdr;
+            break;
         case 0x14:
-            return s->resp[0];
+            ret = s->resp[0];
+            break;
         case 0x18:
-            return s->resp[1];
+            ret = s->resp[1];
+            break;
         case 0x1c:
-            return s->resp[2];
+            ret = s->resp[2];
+            break;
         case 0x20:
-            return s->resp[3];
+            ret = s->resp[3];
+            break;
         case 0x24:
-            return s->dtimer;
+            ret = s->dtimer;
+            break;
         case 0x28:
-            return s->dlenr;
+            ret = s->dlenr;
+            break;
         case 0x2c:
-            return s->dctrl;
+            ret = s->dctrl;
+            break;
         case 0x30:
-            return s->dcntr;
+            ret = s->dcntr;
+            break;
         case 0x34:
             sdmmc_patch_star(s);
             sdmmc_update_irq(s);
-            return s->star;
+            ret = s->star;
+            break;
         case 0x38:
-            return s->icr;
+            ret = s->icr;
+            break;
         case 0x3c:
-            return s->maskr;
+            ret = s->maskr;
+            break;
         case 0x40:
-            return s->acktimer;
+            ret = s->acktimer;
+            break;
         case 0x44:
-            return s->fifothrr;
+            ret = s->fifothrr;
+            break;
         case 0x50:
-            return s->idmactrlr;
+            ret = s->idmactrlr;
+            break;
         case 0x54:
-            return s->idmabsizer;
+            ret = s->idmabsizer;
+            break;
         case 0x58:
-            return s->idmabaser;
+            ret = s->idmabaser;
+            break;
         case 0x64:
-            return s->idmalar;
+            ret = s->idmalar;
+            break;
         case 0x68:
-            return s->idmabar;
+            ret = s->idmabar;
+            break;
         case 0x80:
         case 0x84:
         case 0x88:
@@ -188,32 +218,55 @@ static uint64_t stm32mp2_SDMMC_read(void *opaque, hwaddr addr,
         case 0xb8:
         case 0xbc:
             {
-                uint32_t ret = 0;
                 if(s->rx_fifo_user_ptr < s->rx_fifo_data_size)
                 {
                     ret = s->rx_fifo_buf[s->rx_fifo_user_ptr / 4];
                     s->rx_fifo_user_ptr += 4;
                 }
-                if(s->rx_fifo_user_ptr >= s->rx_fifo_data_size && s->dcntr)
-                    sdmmc_read_block(s);
-
-                return ret;
+                if(s->rx_fifo_user_ptr >= s->rx_fifo_data_size)
+                {
+                    if(s->dctrl & 0x1)
+                    {
+                        if(s->dcntr)
+                            sdmmc_read_block(s);
+                        else
+                        {
+                            // end of read
+                            s->dctrl &= ~0x1u;      // clear dten
+                            s->star |= 1U << 8;     // dataend
+                            sdmmc_patch_star(s);
+                            sdmmc_update_irq(s);
+                        }
+                    }
+                    else
+                    {
+                        // spurious read
+                        fprintf(stderr, "SDMMC: FIFO read but not in transfer state\n");
+                        ret = 0;
+                    }
+                }
             }
             break;
         case 0x3f0:
-            return 0x4;
+            ret = 0x4;
+            break;
         case 0x3f4:
-            return 0x30;
+            ret = 0x30;
+            break;
         case 0x3f8:
-            return 0x140022;
+            ret = 0x140022;
+            break;
         case 0x3fc:
-            return 0xa3c5dd01;
+            ret = 0xa3c5dd01;
+            break;
+        default:
+            fprintf(stderr, "SDMMC: read from %p unimplemented\n",
+                (void *)addr);
     }
     
-    fprintf(stderr, "SDMMC: read from %p unimplemented\n",
-        (void *)addr);
+    qemu_mutex_unlock(&s->m);
 
-    return 0;
+    return ret;
 }
 
 static const MemoryRegionOps stm32mp2_SDMMC_ops = {
@@ -243,6 +296,8 @@ static void stm32mp2_SDMMC_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
     qdev_init_gpio_in_named(DEVICE(obj), sdmmc_reset, "rst", 1);
+
+    qemu_mutex_init(&s->m);
 }
 
 static void stm32mp2_SDMMC_class_init(ObjectClass *class,
@@ -386,7 +441,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
             }
             else
             {
-                // handle any remaining blocks via PIO
+                // handle blocks via PIO
                 sdmmc_read_block(s);
             }
         }
@@ -430,11 +485,14 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
 
                         address_space_unmap(&address_space_memory, host_addr, hlen, false, hlen);
 
-                        s->star |= 1U << 10;        // dbckend
-                        sdmmc_update_irq(s);
-
                         s->idmabaser += blk_size;
                         s->dcntr -= blk_size;
+
+                        if(s->dcntr)
+                        {
+                            s->star |= 1U << 10;        // dbckend
+                            sdmmc_update_irq(s);
+                        }
                     }
                     s->star |= 1U << 8;     // dataend
                     s->dctrl &= ~0x1u;
@@ -470,7 +528,9 @@ int sdmmc_read_block(struct Stm32MP2SDMMCState *s)
         s->dcntr -= blk_size;
         s->rx_fifo_user_ptr = 0;
         s->rx_fifo_data_size = blk_size;
+
         s->star |= 1U << 10;    // dbckend
+        sdmmc_update_irq(s);
     }
     else if(s->dcntr != 0)
     {
@@ -478,12 +538,6 @@ int sdmmc_read_block(struct Stm32MP2SDMMCState *s)
         return -1;
     }
 
-    if(s->dcntr == 0)
-    {
-        s->star |= 1U << 8;     // dataend
-        s->dcntr &= ~0x3u;      // clear dtdir and dten
-    }
-    sdmmc_update_irq(s);
     return (int)bread;
 }
 
@@ -518,6 +572,17 @@ static void sdmmc_patch_star(struct Stm32MP2SDMMCState *s)
     }
 
     // TODO: same for txfifo
+
+
+    // DPSMACT
+    if(s->dctrl & 0x1)
+    {
+        s->star |= 1U << 12;
+    }
+    else
+    {
+        s->star &= ~(1U << 12);
+    }
 }
 
 static void sdmmc_update_irq(struct Stm32MP2SDMMCState *s)
@@ -525,13 +590,13 @@ static void sdmmc_update_irq(struct Stm32MP2SDMMCState *s)
     uint32_t need_irq = s->star & s->maskr;
     if(need_irq && !s->irq_set)
     {
-        fprintf(stderr, "SDMMC: update_irq: %x -> 1\n", need_irq);
+        //fprintf(stderr, "SDMMC: update_irq: %x (%x) -> 1\n", s->star, need_irq);
         s->irq_set = 1;
         qemu_set_irq(s->irq, 1);
     }
     else if(!need_irq && s->irq_set)
     {
-        fprintf(stderr, "SDMMC: update_irq: %x -> 0\n", need_irq);
+        //fprintf(stderr, "SDMMC: update_irq: %x (%x) -> 0\n", s->star, need_irq);
         s->irq_set = 0;
         qemu_set_irq(s->irq, 0);
     }

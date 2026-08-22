@@ -164,6 +164,8 @@ struct Stm32MP2SDMMCState
     SysBusDevice parent_obj;
     MemoryRegion mmio;
 
+    QemuMutex m;
+
     int32_t id;
 
     qemu_irq irq;
