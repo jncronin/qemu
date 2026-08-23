@@ -33,6 +33,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
+#include "hw/arm/armv7m.h"
 #include "gk_i2cdevs.h"
 #include "gk_peripherals.h"
 #include <time.h>
@@ -41,6 +42,8 @@
 OBJECT_DECLARE_SIMPLE_TYPE(GKMachineState, GK_MACHINE)
 
 #define FLASH_SIZE (4 * MiB)
+
+static const unsigned int ncpus = 2;
 
 struct TIMInit
 {
@@ -101,7 +104,8 @@ struct GKMachineState {
     struct
     {
         ARMCPU core;
-    } cpu[4];
+    } cpu[2];
+    struct ARMv7MState cm33;
 
     struct Stm32MP2UsartState usart6;
     struct Stm32MP2RCCState rcc;
@@ -111,6 +115,7 @@ struct GKMachineState {
     struct Stm32MP2PWRState pwr;
     struct Stm32MP2LTDCState ltdc;
     struct Stm32MP2SDMMCState sdmmc[sizeof(sdmmcinits) / sizeof(sdmmcinits[0])];
+    struct Stm32MP2CA35_SYSCFGState ca35_syscfg;
 
     DeviceState *gic;
 };
@@ -128,7 +133,6 @@ static void gk_machine_init(MachineState *machine)
     
     GKMachineState *mc = GK_MACHINE(machine);
 
-    const unsigned int ncpus = 2;
     const unsigned int nspis = 384;
 
     /* GICv2 */
@@ -144,6 +148,11 @@ static void gk_machine_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 1, 0x4ac20000);    // per-cpu decoding is done in the gic device
     sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 2, 0x4ac40000);
     sysbus_mmio_map(SYS_BUS_DEVICE(mc->gic), 3, 0x4ac60000);
+
+    /* RCC */
+    object_initialize_child(OBJECT(machine), "rcc", &mc->rcc, TYPE_STM32MP2_RCC);
+    sysbus_realize(SYS_BUS_DEVICE(&mc->rcc), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->rcc), 0, 0x44200000);
 
     /* CPUs */
     for(unsigned int i = 0; i < ncpus; i++)
@@ -185,26 +194,38 @@ static void gk_machine_init(MachineState *machine)
                             ARM_CPU_TYPE_NAME("cortex-m0"));
     qdev_realize(DEVICE(&mc->cpu[3].core), NULL, &error_fatal);
 
+#endif
     // Instead of the above, need to do something like:
     /* 1. Create the ARMV7M container container */
-    armv7m = DEVICE(object_initialize_child(OBJECT(machine), "armv7m-subsystem", 
-                                            TYPE_ARMV7M));
+    object_initialize_child(OBJECT(machine), "armv7m-subsystem", &mc->cm33, TYPE_ARMV7M);
 
     /* 2. Set the desired Cortex-M CPU variant */
-    object_property_set_str(OBJECT(armv7m), "cpu-type", 
-                            ARM_CPU_TYPE_NAME("cortex-m33"), &error_abort);
+    object_property_set_str(OBJECT(&mc->cm33), "cpu-type", 
+                            ARM_CPU_TYPE_NAME("cortex-m33"), &error_fatal);
 
     /* 3. Configure the number of interrupts your M33 will handle */
-    object_property_set_uint(OBJECT(armv7m), "num-irq", 64, &error_abort);
+    object_property_set_uint(OBJECT(&mc->cm33), "num-irq", 64, &error_fatal);
 
     /* 4. Map the CPU's container memory space (or system_memory) */
-    object_property_set_link(OBJECT(armv7m), "memory", 
-                            OBJECT(get_system_memory()), &error_abort);
+    object_property_set_link(OBJECT(&mc->cm33), "memory", 
+                            OBJECT(get_system_memory()), &error_fatal);
+    object_property_set_bool(OBJECT(&mc->cm33), "start-powered-off", true, &error_fatal);
+
+    // cpuclk
+    qdev_connect_clock_in(DEVICE(&mc->cm33), "cpuclk",
+        qdev_get_clock_out(DEVICE(&mc->rcc), "ck_icn_hs_mcu"));
+    qdev_connect_clock_in(DEVICE(&mc->cm33), "refclk",
+        qdev_get_clock_out(DEVICE(&mc->rcc), "ck_cm33_systick"));
 
     /* 5. Realize the entire ARMV7M subsystem */
-    sysbus_realize(SYS_BUS_DEVICE(armv7m), &error_fatal);
-#endif
+    sysbus_realize(SYS_BUS_DEVICE(&mc->cm33), &error_fatal);
+    resettable_assert_reset(OBJECT(&mc->cm33), RESET_TYPE_COLD);
 
+    // Let the RCC control the CM33
+    object_property_add_link(OBJECT(&mc->rcc), "cm33", TYPE_ARMV7M,
+        (Object **)&mc->rcc.cm33,
+        object_property_allow_set_link, 0);
+    object_property_set_link(OBJECT(&mc->rcc), "cm33", OBJECT(&mc->cm33), &error_fatal);
 
     memory_region_init_ram(&mc->sysram, NULL, "SYSRAM", 256 * KiB, &error_fatal);
     memory_region_init_ram(&mc->sram1, NULL, "SRAM1", 128 * KiB, &error_fatal);
@@ -298,10 +319,6 @@ static void gk_machine_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&mc->usart6), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->usart6), 0, 0x40220000);
 
-    object_initialize_child(OBJECT(machine), "rcc", &mc->rcc, TYPE_STM32MP2_RCC);
-    sysbus_realize(SYS_BUS_DEVICE(&mc->rcc), &error_fatal);
-    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->rcc), 0, 0x44200000);
-
     for(unsigned i = 0; i < sizeof(timinits) / sizeof(timinits[0]); i++)
     {
         int is_lp = timinits[i].id < 0 ? 1 : 0;
@@ -364,6 +381,19 @@ static void gk_machine_init(MachineState *machine)
     }
     qdev_connect_gpio_out_named(DEVICE(&mc->rcc), "sdmmc1_rst", 0,
         qdev_get_gpio_in_named(DEVICE(&mc->sdmmc[0]), "rst", 0));
+
+    object_initialize_child(OBJECT(machine), "ca35-syscfg", &mc->ca35_syscfg, TYPE_STM32MP2_CA35_SYSCFG);
+    object_property_add_link(OBJECT(&mc->ca35_syscfg), "cm33", TYPE_ARMV7M,
+        (Object **)&mc->ca35_syscfg.cm33,
+        object_property_allow_set_link, 0);
+    object_property_set_link(OBJECT(&mc->ca35_syscfg), "cm33", OBJECT(&mc->cm33), &error_fatal);
+    sysbus_realize(SYS_BUS_DEVICE(&mc->ca35_syscfg), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&mc->ca35_syscfg), 0, 0x48800000);
+
+    object_property_add_link(OBJECT(&mc->rcc), "ca35_syscfg", TYPE_STM32MP2_CA35_SYSCFG,
+        (Object **)&mc->rcc.ca35_syscfg,
+        object_property_allow_set_link, 0);
+    object_property_set_link(OBJECT(&mc->rcc), "ca35_syscfg", OBJECT(&mc->ca35_syscfg), &error_fatal);
 
     // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);

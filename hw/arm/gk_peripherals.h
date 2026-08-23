@@ -31,6 +31,7 @@
 #include "ui/console.h"
 #include "ui/sdl2.h"
 #include "hw/sd/sd.h"
+#include "hw/arm/armv7m.h"
 #include "gk_i2cdevs.h"
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
@@ -42,6 +43,9 @@
 #define TYPE_STM32MP2_PLL "stm32mp2-pll"
 #define TYPE_STM32MP2_LTDC "stm32mp2-ltdc"
 #define TYPE_STM32MP2_SDMMC "stm32mp2-sdmmc"
+#define TYPE_STM32MP2_CA35_SYSCFG "stm32mp2-ca35-syscfg"
+
+struct Stm32MP2CA35_SYSCFGState;
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -66,6 +70,12 @@ struct Stm32MP2RCCState {
     struct Stm32MP2PLLState pll48[5];
 
     qemu_irq sdmmc1_rst;
+
+    Clock *ck_icn_hs_mcu;
+    Clock *ck_cm33_systick;
+
+    struct ARMv7MState *cm33;
+    struct Stm32MP2CA35_SYSCFGState *ca35_syscfg;
 };
 
 struct Stm32MP2TIMState {
@@ -190,6 +200,21 @@ struct Stm32MP2SDMMCState
     unsigned int tx_fifo_data_size;
 
     int irq_set;
+};
+
+struct Stm32MP2CA35_SYSCFGState
+{
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    uint32_t m33_access_cr;
+    uint32_t m33_tzen_cr;
+    uint32_t m33_initsvtor_cr;
+    uint32_t m33_initnsvtor_cr;
+
+    struct ARMv7MState *cm33;
 };
 
 #endif

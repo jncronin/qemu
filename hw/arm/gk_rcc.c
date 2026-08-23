@@ -1,4 +1,5 @@
 #include "gk_peripherals.h"
+#include "exec/tb-flush.h"
 
 /* STM32MP2 RCC */
 struct Stm32MP2RCCClass
@@ -10,6 +11,8 @@ struct Stm32MP2PLLClass
 {
     SysBusDeviceClass parent_class;
 };
+
+static void rcc_reset_cm33(struct Stm32MP2RCCState *s);
 
 OBJECT_DECLARE_TYPE(Stm32MP2RCCState, Stm32MP2RCCClass,
                     STM32MP2_RCC)
@@ -115,6 +118,35 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
 
     switch(addr)
     {
+        case 0x40c:
+            // C2RST
+            if(val64 & 0x1)
+            {
+                if(!resettable_is_in_reset(OBJECT(s->cm33)))
+                {
+                    resettable_assert_reset(OBJECT(s->cm33), RESET_TYPE_COLD);
+                }
+                if(s->regs[0x434/4] & 0x1)
+                {
+                    rcc_reset_cm33(s);
+                    resettable_release_reset(OBJECT(s->cm33), RESET_TYPE_COLD);
+                }
+                s->regs[0x40c/4] &= ~0x1;
+            }
+            break;
+
+        case 0x434:
+            // cpubootcr
+            if(val64 & 0x1)
+            {
+                if(resettable_is_in_reset(OBJECT(s->cm33)))
+                {
+                    rcc_reset_cm33(s);
+                    resettable_release_reset(OBJECT(s->cm33), RESET_TYPE_COLD);
+                }
+            }
+            break;
+
         case 0x49c:
             if(val64 & 0x100)
                 s->regs[0x4a4 / 4] |= 0x100;
@@ -228,6 +260,12 @@ static void stm32mp2_RCC_init(Object *obj)
     }
 
     qdev_init_gpio_out_named(DEVICE(obj), &s->sdmmc1_rst, "sdmmc1_rst", 1);
+
+    s->ck_icn_hs_mcu = qdev_init_clock_out(DEVICE(s), "ck_icn_hs_mcu");
+    clock_set_hz(s->ck_icn_hs_mcu, 400000000);
+    s->ck_cm33_systick = qdev_init_clock_out(DEVICE(s), "ck_cm33_systick");
+    clock_set_source(s->ck_cm33_systick, s->ck_icn_hs_mcu);
+    clock_set_mul_div(s->ck_cm33_systick, 1, 8);
 }
 
 static void stm32mp2_RCC_class_init(ObjectClass *class,
@@ -269,3 +307,44 @@ static const TypeInfo stm32mp2_RCC_types[] = {
 };
 
 DEFINE_TYPES(stm32mp2_RCC_types)
+
+static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
+{
+    fprintf(stderr, "RCC: CM33 reset: TZEN: %x, INITSVTOR: %x, INITNSVTOR: %x\n",
+        s->ca35_syscfg->m33_tzen_cr,
+        s->ca35_syscfg->m33_initsvtor_cr,
+        s->ca35_syscfg->m33_initnsvtor_cr);
+
+    CPUState *cpu = CPU(s->cm33->cpu);
+    cpu_interrupt(cpu, CPU_INTERRUPT_HALT);
+    cpu_exit(cpu);
+
+    CPUARMState *env = cpu_env(cpu);
+    ARMCPU *arm_cpu = ARM_CPU(cpu);
+    env->v7m.vecbase[M_REG_S] = s->ca35_syscfg->m33_initsvtor_cr;
+    env->v7m.vecbase[M_REG_NS] = s->ca35_syscfg->m33_initnsvtor_cr;
+    env->v7m.secure = s->ca35_syscfg->m33_tzen_cr & 0x1;
+    env->thumb = 1;
+
+    uint32_t sp, pc;
+    uint32_t vtor = (s->ca35_syscfg->m33_tzen_cr & 0x1) ? s->ca35_syscfg->m33_initsvtor_cr :
+        s->ca35_syscfg->m33_initnsvtor_cr;
+    address_space_read(&address_space_memory, vtor, MEMTXATTRS_UNSPECIFIED, (uint8_t *)&sp, 4);
+    address_space_read(&address_space_memory, vtor + 4, MEMTXATTRS_UNSPECIFIED, (uint8_t *)&pc, 4);
+    le32_to_cpus(&sp);
+    le32_to_cpus(&pc);
+    env->regs[13] = sp;
+    env->regs[15] = pc & ~0x1u;
+
+    arm_cpu->power_state = PSCI_ON;
+    env->halt_reason = 0;
+
+    queue_tb_flush(cpu);
+
+    if(cpu->halted)
+    {
+        cpu->halted = 0;
+        cpu_reset_interrupt(cpu, CPU_INTERRUPT_HALT);
+        qemu_cpu_kick(cpu);
+    }
+}
