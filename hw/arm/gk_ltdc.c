@@ -17,11 +17,12 @@ static const Property stm32mp2_LTDC_properties[] = {
 
 static void ltdc_invalidate_display(void * opaque);
 static bool ltdc_update_display(void *opaque);
-static void tim_cb(void *, enum ClockEvent);
+static void tim_cb(void * /* , enum ClockEvent */);
 static void ltdc_update_shadow_regs(struct Stm32MP2LTDCState *ltdc, struct Stm32MP2LTDCLayer *l);
 static void ltdc_update_size(struct Stm32MP2LTDCState *ltdc);
 static void ltdc_update_size_main_thread(void *);
 static void ltdc_layer_resize_main_thread(void *);
+static int ltdc_ckey_palette_blit(struct Stm32MP2LTDCLayer *l, void *host_addr, uint32_t stride);
 
 static const GraphicHwOps ltdc_gfx_ops = {
     .invalidate  = ltdc_invalidate_display,
@@ -56,14 +57,20 @@ static void stm32mp2_LTDC_write(void *opaque, hwaddr addr,
 
         case 0x18:
             s->gcr = val64;
+            ptimer_transaction_begin(s->clk_out);
             if(s->gcr & 0x1)
             {
-                clock_set_hz(s->clk_out, 60);
+                fprintf(stderr, "LTDC: GCR: enable clk\n");
+                //clock_update_hz(s->clk_out, 60);
+                ptimer_run(s->clk_out, 0);
             }
             else
             {
-                clock_set(s->clk_out, 0);
+                fprintf(stderr, "LTDC: GCR: disable clk\n");
+                //clock_update(s->clk_out, 0);
+                ptimer_stop(s->clk_out);
             }
+            ptimer_transaction_commit(s->clk_out);
             break;
 
         case 0x24:
@@ -100,6 +107,7 @@ static void stm32mp2_LTDC_write(void *opaque, hwaddr addr,
                 if(!s->isr && old_isr)
                 {
                     qemu_set_irq(s->irq, 0);
+                    //fprintf(stderr, "LTDC: CLEAR IRQ\n");
                 }
             }
             break;
@@ -374,8 +382,15 @@ static void stm32mp2_LTDC_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
 
-    s->clk_out = qdev_init_clock_out(DEVICE(s), "clk_out");
-    clock_set_callback(s->clk_out, tim_cb, s, ClockUpdate);
+    //s->clk_out = qdev_init_clock_out(DEVICE(s), "clk_out");
+    //s->clk_out = clock_new(obj, "clk_out");
+    //clock_set_callback(s->clk_out, tim_cb, s, ClockUpdate);
+    s->clk_out = ptimer_init(tim_cb, s, PTIMER_POLICY_WRAP_AFTER_ONE_PERIOD);
+    ptimer_transaction_begin(s->clk_out);
+    ptimer_set_freq(s->clk_out, 60);
+    ptimer_set_limit(s->clk_out, 1, 1);
+    ptimer_stop(s->clk_out);
+    ptimer_transaction_commit(s->clk_out);
     s->con = qemu_graphic_console_create(DEVICE(obj), 0, &ltdc_gfx_ops, s);
     s->resize_bh = qemu_bh_new(ltdc_update_size_main_thread, s);
     for(unsigned int i = 0u; i < 3; i++)
@@ -465,6 +480,12 @@ static bool ltdc_update_display(void *opaque)
             continue;
         }
 
+        if(!(l->r.cacr))
+        {
+            // alpha = 0.  Blending modes always include constant alpha so just ignore layer here
+            continue;
+        }
+
         // get output size and target location
         uint32_t left = l->r.whpcr & 0xffffU;
         uint32_t right = (l->r.whpcr >> 16) & 0xffffu;
@@ -488,14 +509,23 @@ static bool ltdc_update_display(void *opaque)
         hwaddr hlen = lh * stride;
         void *host_addr = address_space_map(&address_space_memory, (hwaddr)l->r.cfbar, 
             &hlen, false, MEMTXATTRS_UNSPECIFIED);
-        //void *host_addr = qemu_map_ram_ptr(NULL, (hwaddr)l->r.cfbar);
         if(!host_addr)
         {
             fprintf(stderr, "LTDC: couldn't get host address for layer addr %x\n", l->r.cfbar);
             continue;
         }
 
-        SDL_UpdateTexture(l->t, NULL, host_addr, stride);
+        // handle color key and palette in software
+        if((l->r.cr & 0x12) == 0 && !l->needs_software_conv)
+        {
+            // no special handling - direct blit
+            SDL_UpdateTexture(l->t, NULL, host_addr, stride);
+        }
+        else
+        {
+            ltdc_ckey_palette_blit(l, host_addr, stride);
+        }
+
         address_space_unmap(&address_space_memory, host_addr, hlen, false, hlen);
 
         SDL_Rect dest;
@@ -503,6 +533,30 @@ static bool ltdc_update_display(void *opaque)
         dest.y = top;
         dest.w = lw;
         dest.h = lh;
+
+        SDL_SetTextureAlphaMod(l->t, l->r.cacr);
+        SDL_SetTextureScaleMode(l->t, SDL_ScaleModeLinear);
+
+        switch(l->r.bfcr & 0x707u)
+        {
+            case 0x405u:
+                SDL_SetTextureBlendMode(l->t, SDL_BLENDMODE_NONE);
+                break;
+
+            case 0x607u:
+                SDL_SetTextureBlendMode(l->t, SDL_BLENDMODE_BLEND);
+                break;
+
+            case 0x605u:
+                SDL_SetTextureBlendMode(l->t, SDL_BLENDMODE_ADD);
+                break;
+
+            default:
+                fprintf(stderr, "LTDC: unsupported blend mode: %x, defaulting to no blending\n", l->r.bfcr);
+                SDL_SetTextureBlendMode(l->t, SDL_BLENDMODE_NONE);
+                break;
+        }
+        //fprintf(stderr, "LTDC: layer %d blend mode: %x\n", i + 1, l->r.bfcr);
 
         SDL_RenderCopy(s->r, l->t, NULL, &dest);
     }
@@ -523,26 +577,41 @@ static bool ltdc_update_display(void *opaque)
     return true;        // update done synchronously
 }
 
-static void tim_cb(void *opaque, enum ClockEvent)
+static void tim_cb(void *opaque /*, enum ClockEvent */)
 {
     Stm32MP2LTDCState *s = STM32MP2_LTDC(opaque);
 
+    //fprintf(stderr, "LTDC: VSYNC\n");
+
     if(s->srcr & 0x2)
     {
+        //fprintf(stderr, "LTDC: VSYNC: VBR\n");
         // VBR - update shadow registers
         if(s->layers[0].r.rcr & 0x4)
+        {
+            fprintf(stderr, "LTDC: VSYNC: VBR: update L1\n");
             ltdc_update_shadow_regs(s, &s->layers[0]);
+        }
         if(s->layers[1].r.rcr & 0x4)
+        {
+            fprintf(stderr, "LTDC: VSYNC: VBR: update L2\n");
             ltdc_update_shadow_regs(s, &s->layers[1]);
+        }
         if(s->layers[2].r.rcr & 0x4)
+        {
+            fprintf(stderr, "LTDC: VSYNC: VBR: update L3\n");
             ltdc_update_shadow_regs(s, &s->layers[2]);
+        }
         s->srcr &= ~0x2u;
     }
 
     for(unsigned int i = 0; i < 3u; i++)
     {
         if(s->layers[i].r.rcr & 0x2)
+        {
+            //fprintf(stderr, "LTDC: VSYNC: LVBR: update L%u\n", i + 1);
             ltdc_update_shadow_regs(s, &s->layers[i]);
+        }
         s->layers[i].r.rcr &= ~0x2u;
         s->layers[i].sr.rcr &= ~0x2u;
     }
@@ -550,8 +619,10 @@ static void tim_cb(void *opaque, enum ClockEvent)
     s->isr |= 0x1;
     if(s->ier & 0x1)
     {
+        //fprintf(stderr, "LTDC: VSYNC: IRQ\n");
         qemu_set_irq(s->irq, 1);
     }
+    //fprintf(stderr, "LTDC: VSYNC: END\n");
 }
 
 void ltdc_update_shadow_regs(struct Stm32MP2LTDCState *s, struct Stm32MP2LTDCLayer *l)
@@ -569,6 +640,11 @@ void ltdc_update_shadow_regs(struct Stm32MP2LTDCState *s, struct Stm32MP2LTDCLay
         update_tex = 1;
     if(l->r.fpf1r != l->sr.fpf1r)
         update_tex = 1;
+    if((l->r.cr & 0x12u) != (l->sr.cr & 0x12u))
+    {
+        // cluten or cken
+        update_tex = 1;
+    }
     
     memcpy(&l->r, &l->sr, sizeof(struct Stm32MP2LTDCLayerRegs));
 
@@ -674,6 +750,7 @@ void ltdc_layer_resize_main_thread(void *opaque)
     uint32_t lw_bytes = (l->r.cfblr & 0xffffU) - 7;
     uint32_t sdl_pf = 0;
     uint32_t bpp = 0;
+    uint32_t needs_software_conv = 0;
 
     switch(l->r.pfcr)
     {
@@ -712,8 +789,9 @@ void ltdc_layer_resize_main_thread(void *opaque)
                 switch(pf)
                 {
                     case 0x0006010000020000:
-                        sdl_pf = SDL_PIXELFORMAT_RGB332;    // not really this, but renderer doesn't support palletes
+                        sdl_pf = SDL_PIXELFORMAT_INDEX8;
                         bpp = 1;
+                        needs_software_conv = 1;
                         break;
 
                     default:
@@ -723,15 +801,153 @@ void ltdc_layer_resize_main_thread(void *opaque)
             }
     }
 
+    // if color keying or palette, create a argb8888 texture regardless
+    if((l->r.cr & 0x12) || needs_software_conv)
+    {
+        l->sdl_input_pf = sdl_pf;
+        sdl_pf = SDL_PIXELFORMAT_ARGB8888;
+    }
+    else
+    {
+        l->sdl_input_pf = sdl_pf;
+    }
+
+    if(l->sdl_input_pf_struct)
+    {
+        SDL_FreeFormat(l->sdl_input_pf_struct);
+    }
+    l->sdl_input_pf_struct = SDL_AllocFormat(l->sdl_input_pf);
+
     if(bpp == 0)
         return;
 
+    l->bpp = bpp;
+    l->needs_software_conv = needs_software_conv;
+
     uint32_t lw = lw_bytes / bpp;
     uint32_t lh = l->r.cfblnr;
+    l->lw = lw;
+    l->lh = lh;
+
+    if(l->t)
+    {
+        SDL_DestroyTexture(l->t);
+        l->t = NULL;
+    }
 
     l->t = SDL_CreateTexture(l->s->r, sdl_pf, SDL_TEXTUREACCESS_STREAMING, lw, lh);
     if(!l->t)
     {
         fprintf(stderr, "LTDC: SDL_CreateTexture failed: %s\n", SDL_GetError());
     }
+}
+
+/* Perform (slow) software updates of a layer requiring color keying and/or palette */
+static int ltdc_ckey_palette_blit(struct Stm32MP2LTDCLayer *l, void *src_addr, uint32_t src_stride)
+{
+    void *dst_addr;
+    int dst_stride;
+    if(SDL_LockTexture(l->t, NULL, &dst_addr, &dst_stride) != 0)
+    {
+        fprintf(stderr, "LTDC: couldn't lock texture: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    //fprintf(stderr, "LTDC: slow blit: src: %p, dst: %p, src_stride: %u, dst_stride: %d, input_pf: %u (%s), cr: %u, lw: %u, lh: %u\n",
+    //    src_addr, dst_addr, src_stride, dst_stride, l->sdl_input_pf,
+    //    SDL_GetPixelFormatName(l->sdl_input_pf),
+    //    l->r.cr, l->lw, l->lh);
+
+    for(uint32_t y = 0; y < l->lh; y++)
+    {
+        const uint8_t *src_row = &((uint8_t *)src_addr)[y * src_stride];
+        uint8_t *dst_row = &((uint8_t *)dst_addr)[y * dst_stride];
+
+        for(uint32_t x = 0; x < l->lw; x++)
+        {
+            Uint8 r = 0, g = 0, b = 0, a = 0;
+
+            const uint8_t *src = &src_row[x * l->bpp];
+            uint8_t *dst = &dst_row[x * 4];
+
+            // apply palette first, if required
+            if(l->r.cr & 0x10)
+            {
+                switch(l->sdl_input_pf)
+                {
+                    case SDL_PIXELFORMAT_INDEX8:
+                        {
+                            a = 255;
+                            r = (Uint8)(l->clut[*src] >> 16);
+                            g = (Uint8)(l->clut[*src] >> 8);
+                            b = (Uint8)(l->clut[*src]);
+                        }
+                        break;
+
+                    default:
+                        fprintf(stderr, "LTDC: unsupported pallete pf: %u\n", l->sdl_input_pf);
+                        SDL_UnlockTexture(l->t);
+                        return -1;
+                }
+            }
+            else
+            {
+                switch(l->sdl_input_pf)
+                {
+                    case SDL_PIXELFORMAT_INDEX8:
+                        {
+                            a = 255;
+                            r = *src;
+                            g = *src;
+                            b = *src;
+
+                            //fprintf(stderr, "LTDC: pf index8: (%u,%u) -> %u\n", x, y, *src);    
+                        }
+                        break;
+
+                    case SDL_PIXELFORMAT_RGB565:
+                        // handle colour stuffing, i.e. replicating MSBs to LSBs - needed for CKCR match
+                        {
+                            a = 255;
+                            uint16_t srcw = *(uint16_t *)src;
+                            r = (Uint8)((srcw >> 11) << 3);
+                            g = (Uint8)(((srcw >> 5) & 0x3fu) << 2);
+                            b = (Uint8)((srcw & 0x1fu) << 3);
+
+                            r |= r >> 5;
+                            g |= g >> 6;
+                            b |= b >> 5;
+                        }
+                        break;
+
+                    default:
+                        SDL_GetRGBA(*(uint32_t *)src, l->sdl_input_pf_struct, &r, &g, &b, &a);
+                        break;
+                }
+            }
+
+            // Now apply color key, if applicable
+            if(l->r.cr & 0x2)
+            {
+                uint32_t ccol = (((uint32_t)r) << 16) |
+                    (((uint32_t)g) << 8) |
+                    ((uint32_t)b);
+                if(ccol == l->r.ckcr)
+                {
+                    a = r = g = b = 0;
+                }
+
+                //fprintf(stderr, "LTDC: color key: %x vs %x\n", ccol, l->r.ckcr);
+            }
+
+            // Now write out as argb8888
+            dst[0] = b;
+            dst[1] = g;
+            dst[2] = r;
+            dst[3] = a;
+        }
+    }
+
+    SDL_UnlockTexture(l->t);
+    return 0;
 }

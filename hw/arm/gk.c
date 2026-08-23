@@ -345,6 +345,8 @@ static void gk_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "ltdc", &mc->ltdc, TYPE_STM32MP2_LTDC);
     sysbus_realize(SYS_BUS_DEVICE(&mc->ltdc), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->ltdc), 0, 0x48010000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(&mc->ltdc), 0,
+        qdev_get_gpio_in(DEVICE(mc->gic), 158));
 
     for(unsigned i = 0; i < sizeof(sdmmcinits) / sizeof(sdmmcinits[0]); i++)
     {

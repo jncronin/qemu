@@ -135,6 +135,11 @@ struct Stm32MP2LTDCLayer
     SDL_Texture *t;
     QEMUBH *resize_bh;
     struct Stm32MP2LTDCState *s;
+
+    uint32_t sdl_input_pf;
+    uint32_t bpp, lw, lh;
+    int needs_software_conv;
+    SDL_PixelFormat *sdl_input_pf_struct;
 };
 
 struct Stm32MP2LTDCState {
@@ -144,7 +149,8 @@ struct Stm32MP2LTDCState {
     int32_t id;
 
     QemuConsole *con;
-    Clock *clk_out;
+    //Clock *clk_out;
+    ptimer_state *clk_out;
 
     struct Stm32MP2LTDCLayer layers[3];
 
