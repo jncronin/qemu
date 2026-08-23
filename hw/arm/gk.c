@@ -186,27 +186,11 @@ static void gk_machine_init(MachineState *machine)
             qdev_get_gpio_in(DEVICE(mc->gic), irq_base + ARCH_TIMER_VIRT_IRQ));
     }
 
-#if 0
-    object_initialize_child(OBJECT(mc), "cpu[2]", &mc->cpu[2].core,
-                            ARM_CPU_TYPE_NAME("cortex-m33"));
-    qdev_realize(DEVICE(&mc->cpu[2].core), NULL, &error_fatal);
-    object_initialize_child(OBJECT(mc), "cpu[3]", &mc->cpu[3].core,
-                            ARM_CPU_TYPE_NAME("cortex-m0"));
-    qdev_realize(DEVICE(&mc->cpu[3].core), NULL, &error_fatal);
-
-#endif
-    // Instead of the above, need to do something like:
-    /* 1. Create the ARMV7M container container */
+    // CM33 needs creating within its own subsystem
     object_initialize_child(OBJECT(machine), "armv7m-subsystem", &mc->cm33, TYPE_ARMV7M);
-
-    /* 2. Set the desired Cortex-M CPU variant */
     object_property_set_str(OBJECT(&mc->cm33), "cpu-type", 
                             ARM_CPU_TYPE_NAME("cortex-m33"), &error_fatal);
-
-    /* 3. Configure the number of interrupts your M33 will handle */
     object_property_set_uint(OBJECT(&mc->cm33), "num-irq", 64, &error_fatal);
-
-    /* 4. Map the CPU's container memory space (or system_memory) */
     object_property_set_link(OBJECT(&mc->cm33), "memory", 
                             OBJECT(get_system_memory()), &error_fatal);
     object_property_set_bool(OBJECT(&mc->cm33), "start-powered-off", true, &error_fatal);
@@ -217,7 +201,6 @@ static void gk_machine_init(MachineState *machine)
     qdev_connect_clock_in(DEVICE(&mc->cm33), "refclk",
         qdev_get_clock_out(DEVICE(&mc->rcc), "ck_cm33_systick"));
 
-    /* 5. Realize the entire ARMV7M subsystem */
     sysbus_realize(SYS_BUS_DEVICE(&mc->cm33), &error_fatal);
     resettable_assert_reset(OBJECT(&mc->cm33), RESET_TYPE_COLD);
 
@@ -227,6 +210,7 @@ static void gk_machine_init(MachineState *machine)
         object_property_allow_set_link, 0);
     object_property_set_link(OBJECT(&mc->rcc), "cm33", OBJECT(&mc->cm33), &error_fatal);
 
+    /* Memories */
     memory_region_init_ram(&mc->sysram, NULL, "SYSRAM", 256 * KiB, &error_fatal);
     memory_region_init_ram(&mc->sram1, NULL, "SRAM1", 128 * KiB, &error_fatal);
     memory_region_init_ram(&mc->sram2, NULL, "SRAM2", 128 * KiB, &error_fatal);
