@@ -130,6 +130,8 @@ struct GKMachineState {
     struct Stm32MP2ADCState adc[sizeof(adcinits) / sizeof(adcinits[0])];
     struct Stm32MP2EXTIState exti[sizeof(extiinits) / sizeof(extiinits[0])];
 
+    struct GK_Input_Device_State idevice;
+
     DeviceState *gic;
 };
 
@@ -431,9 +433,14 @@ static void gk_machine_init(MachineState *machine)
             qdev_get_gpio_in_named(DEVICE(&mc->adc[i]), "rst", 0));
     }
 
+    // Input device
+    object_initialize_child(OBJECT(machine), "gk-input-device", &mc->idevice, TYPE_GK_INPUT_DEVICE);
+    qdev_realize(DEVICE(&mc->idevice), NULL, &error_fatal);
+
     // i2c devices
     mc->i2cs[0].devs[0x20] = (struct i2c_device *)qdev_new(TYPE_I2C_PCA6416);
     object_property_add_child(OBJECT(&mc->i2cs[0]), "PCA6416@0x20", OBJECT(mc->i2cs[0].devs[0x20]));
+    object_property_set_link(OBJECT(mc->i2cs[0].devs[0x20]), "idevice", OBJECT(&mc->idevice), &error_fatal);
     qdev_realize(DEVICE(mc->i2cs[0].devs[0x20]), NULL, &error_fatal);
 
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);

@@ -28,12 +28,15 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
+#include "ui/input.h"
 
 #define TYPE_I2C_INA236A "ina236a"
 #define TYPE_I2C_MAX17048 "max17048"
 #define TYPE_I2C_BQ25601 "bq25601"
 #define TYPE_I2C_PCA6416 "pca6416"
 #define TYPE_I2C_GSLX680 "gslx680"
+
+struct GK_Input_Device_State;
 
 struct i2c_device
 {
@@ -71,6 +74,8 @@ struct PCA6416_state
     struct i2c_device base;
     int bytes_since_start;
     int reg_id;
+
+    struct GK_Input_Device_State *idevice;
 };
 
 struct GSLX680_state

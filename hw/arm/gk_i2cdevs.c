@@ -1,4 +1,6 @@
 #include "gk_i2cdevs.h"
+#include "ui/input.h"
+#include "gk_peripherals.h"
 
 // INA236
 OBJECT_DECLARE_SIMPLE_TYPE(ina236_state, I2C_INA236A)
@@ -242,7 +244,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(PCA6416_state, I2C_PCA6416)
 
 static int PCA6416_start(struct i2c_device *_d)
 {
-    struct PCA6416_state *d = (struct PCA6416_state *)_d;
+    struct PCA6416_state *d = I2C_PCA6416(_d);
     d->bytes_since_start = 0;
     return 0;
 }
@@ -252,16 +254,58 @@ static void PCA6416_stop(struct i2c_device *)
 
 static uint8_t PCA6416_read(struct i2c_device *_d)
 {
-    struct PCA6416_state *d = (struct PCA6416_state *)_d;
+    struct PCA6416_state *d = I2C_PCA6416(_d);
     uint8_t ret = 0;
 
     switch(d->reg_id)
     {
         case 0:
-            ret = 0xff;
+            if(d->idevice)
+            {
+                if(d->idevice->btn_states & (1U << 4))
+                    ret |= 1U << 0;
+                if(d->idevice->btn_states & (1U << 5))
+                    ret |= 1U << 1;
+                if(d->idevice->btn_states & (1U << 6))
+                    ret |= 1U << 2;
+                if(d->idevice->btn_states & (1U << 7))
+                    ret |= 1U << 3;
+                if(d->idevice->btn_states & (1U << 2))
+                    ret |= 1U << 4;
+                if(d->idevice->btn_states & (1U << 3))
+                    ret |= 1U << 5;
+                if(d->idevice->btn_states & (1U << 0))
+                    ret |= 1U << 6;
+                if(d->idevice->btn_states & (1U << 1))
+                    ret |= 1U << 7;
+            }
+            else
+            {
+                ret = 0xff;
+            }
             break;
         case 1:
-            ret = 0xff;
+            if(d->idevice)
+            {
+                if(d->idevice->btn_states & (1U << 31))
+                    ret |= 1U << 0;
+                if(d->idevice->btn_states & (1U << 30))
+                    ret |= 1U << 1;
+                if(d->idevice->btn_states & (1U << 28))
+                    ret |= 1U << 2;
+                if(d->idevice->btn_states & (1U << 29))
+                    ret |= 1U << 3;
+                if(d->idevice->btn_states & (1U << 16))
+                    ret |= 1U << 4;
+                if(d->idevice->btn_states & (1U << 23))
+                    ret |= 1U << 5;
+                if(d->idevice->btn_states & (1U << 14))
+                    ret |= 1U << 6;
+            }
+            else
+            {
+                ret = 0xff;
+            }
             break;
     }
 
@@ -273,7 +317,7 @@ static uint8_t PCA6416_read(struct i2c_device *_d)
 
 static int PCA6416_write(struct i2c_device *_d, uint8_t v)
 {
-    struct PCA6416_state *d = (struct PCA6416_state *)_d;
+    struct PCA6416_state *d = I2C_PCA6416(_d);
 
     if(d->bytes_since_start == 0)
     {
@@ -291,6 +335,9 @@ static void PCA6416_init(Object *obj)
     s->base.stop = PCA6416_stop;
     s->base.read = PCA6416_read;
     s->base.write = PCA6416_write;
+
+    object_property_add_link(obj, "idevice", TYPE_GK_INPUT_DEVICE, (Object **)&s->idevice,
+        object_property_allow_set_link, 0);
 }
 
 static const TypeInfo PCA6416_types[] = {

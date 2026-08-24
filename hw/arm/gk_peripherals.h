@@ -32,6 +32,7 @@
 #include "ui/sdl2.h"
 #include "hw/sd/sd.h"
 #include "hw/arm/armv7m.h"
+#include "ui/input.h"
 #include "gk_i2cdevs.h"
 
 #define TYPE_STM32MP2_USART "stm32mp2-usart"
@@ -47,7 +48,10 @@
 #define TYPE_STM32MP2_ADC "stm32mp2-adc"
 #define TYPE_STM32MP2_EXTI "stm32mp2-exti"
 
+#define TYPE_GK_INPUT_DEVICE "gk-input-device"
+
 struct Stm32MP2CA35_SYSCFGState;
+struct GK_Input_Device_State;
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -259,6 +263,17 @@ struct Stm32MP2EXTIState
     int irq_set[2][STM32MP2_EXTI_NIRQ];
 
     uint32_t regs[0x400/4];
+};
+
+struct GK_Input_Device_State
+{
+    DeviceState parent_obj;
+    QemuInputHandlerState *ihandler;
+
+    uint32_t btn_states;
+    int16_t axes[8];
+
+    qemu_irq btns[32];
 };
 
 #endif
