@@ -194,6 +194,7 @@ static void gk_machine_init(MachineState *machine)
     object_property_set_link(OBJECT(&mc->cm33), "memory", 
                             OBJECT(get_system_memory()), &error_fatal);
     object_property_set_bool(OBJECT(&mc->cm33), "start-powered-off", true, &error_fatal);
+    object_property_set_bool(OBJECT(&mc->cm33), "enable-sev-out", true, &error_fatal);
 
     // cpuclk
     qdev_connect_clock_in(DEVICE(&mc->cm33), "cpuclk",
