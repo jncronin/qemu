@@ -44,6 +44,7 @@
 #define TYPE_STM32MP2_LTDC "stm32mp2-ltdc"
 #define TYPE_STM32MP2_SDMMC "stm32mp2-sdmmc"
 #define TYPE_STM32MP2_CA35_SYSCFG "stm32mp2-ca35-syscfg"
+#define TYPE_STM32MP2_ADC "stm32mp2-adc"
 
 struct Stm32MP2CA35_SYSCFGState;
 
@@ -70,6 +71,7 @@ struct Stm32MP2RCCState {
     struct Stm32MP2PLLState pll48[5];
 
     qemu_irq sdmmc1_rst;
+    qemu_irq adc_rst[2];
 
     Clock *ck_icn_hs_mcu;
     Clock *ck_cm33_systick;
@@ -215,6 +217,31 @@ struct Stm32MP2CA35_SYSCFGState
     uint32_t m33_initnsvtor_cr;
 
     struct ARMv7MState *cm33;
+};
+
+struct adc_inst
+{
+    uint32_t isr, ier, cr, cfgr1, cfgr2, smpr1, smpr2, pcsel, sqr[4], dr, jsqr,
+        ofcfgr[4], ofr[4], gcomp, jdr[4], difsel, calfact;
+};
+
+struct adcc
+{
+    uint32_t csr, ccr;
+};
+
+struct Stm32MP2ADCState
+{
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+    qemu_irq irq;
+
+    struct adc_inst inst[2];
+    struct adcc com;
+
+    int irq_set;
 };
 
 #endif
