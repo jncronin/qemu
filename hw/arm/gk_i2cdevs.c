@@ -236,3 +236,143 @@ static const TypeInfo BQ25601_types[] = {
 };
 
 DEFINE_TYPES(BQ25601_types)
+
+// PCA6416
+OBJECT_DECLARE_SIMPLE_TYPE(PCA6416_state, I2C_PCA6416)
+
+static int PCA6416_start(struct i2c_device *_d)
+{
+    struct PCA6416_state *d = (struct PCA6416_state *)_d;
+    d->bytes_since_start = 0;
+    return 0;
+}
+
+static void PCA6416_stop(struct i2c_device *)
+{ }
+
+static uint8_t PCA6416_read(struct i2c_device *_d)
+{
+    struct PCA6416_state *d = (struct PCA6416_state *)_d;
+    uint8_t ret = 0;
+
+    switch(d->reg_id)
+    {
+        case 0:
+            ret = 0xff;
+            break;
+        case 1:
+            ret = 0xff;
+            break;
+    }
+
+    //fprintf(stderr, "PCA6416: read reg %u: %x\n", d->reg_id, ret);
+    d->reg_id++;
+
+    return ret;
+}
+
+static int PCA6416_write(struct i2c_device *_d, uint8_t v)
+{
+    struct PCA6416_state *d = (struct PCA6416_state *)_d;
+
+    if(d->bytes_since_start == 0)
+    {
+        d->reg_id = v;
+    }
+    d->bytes_since_start++;
+
+    return 0;
+}
+
+static void PCA6416_init(Object *obj)
+{
+    PCA6416_state *s = I2C_PCA6416(obj);
+    s->base.start = PCA6416_start;
+    s->base.stop = PCA6416_stop;
+    s->base.read = PCA6416_read;
+    s->base.write = PCA6416_write;
+}
+
+static const TypeInfo PCA6416_types[] = {
+    {
+        .name           = TYPE_I2C_PCA6416,
+        .parent         = TYPE_DEVICE,
+        .instance_size  = sizeof(PCA6416_state),
+        .instance_init  = PCA6416_init,
+    }
+};
+
+DEFINE_TYPES(PCA6416_types)
+
+// GSLX680
+OBJECT_DECLARE_SIMPLE_TYPE(GSLX680_state, I2C_GSLX680)
+
+static int GSLX680_start(struct i2c_device *_d)
+{
+    struct GSLX680_state *d = (struct GSLX680_state *)_d;
+    d->bytes_since_start = 0;
+    return 0;
+}
+
+static void GSLX680_stop(struct i2c_device *)
+{ }
+
+static uint8_t GSLX680_read(struct i2c_device *_d)
+{
+    struct GSLX680_state *d = (struct GSLX680_state *)_d;
+    uint8_t ret = 0;
+
+    switch(d->reg_id)
+    {
+        case 0xb0:
+            ret = 0x5a;
+            break;
+        case 0xb1:
+            ret = 0x5a;
+            break;
+        case 0xb2:
+            ret = 0x5a;
+            break;
+        case 0xb3:
+            ret = 0x5a;
+            break;
+    }
+
+    //fprintf(stderr, "GSLX680: read reg %u: %x\n", d->reg_id, ret);
+    d->reg_id++;
+
+    return ret;
+}
+
+static int GSLX680_write(struct i2c_device *_d, uint8_t v)
+{
+    struct GSLX680_state *d = (struct GSLX680_state *)_d;
+
+    if(d->bytes_since_start == 0)
+    {
+        d->reg_id = v;
+    }
+    d->bytes_since_start++;
+
+    return 0;
+}
+
+static void GSLX680_init(Object *obj)
+{
+    GSLX680_state *s = I2C_GSLX680(obj);
+    s->base.start = GSLX680_start;
+    s->base.stop = GSLX680_stop;
+    s->base.read = GSLX680_read;
+    s->base.write = GSLX680_write;
+}
+
+static const TypeInfo GSLX680_types[] = {
+    {
+        .name           = TYPE_I2C_GSLX680,
+        .parent         = TYPE_DEVICE,
+        .instance_size  = sizeof(GSLX680_state),
+        .instance_init  = GSLX680_init,
+    }
+};
+
+DEFINE_TYPES(GSLX680_types)

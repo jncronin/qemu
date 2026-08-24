@@ -192,6 +192,7 @@ static void stm32mp2_I2C_write(void *opaque, hwaddr addr,
                     }
                     else
                     {
+                        fprintf(stderr, "I2C%d: NACKF for device %x\n", s->id, i2caddr);
                         s->cr2 &= ~(1U << 13);  // clear start
                         s->isr |= (1U << 4);    // NACKF
                     }

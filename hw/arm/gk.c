@@ -50,58 +50,59 @@ struct TIMInit
     int id;
     hwaddr base;
     unsigned gic_irq;
+    unsigned nvic_irq;
 };
 
 static const struct TIMInit timinits[] = {
-    { -5, 0x46070000, 218 },
-    { -4, 0x46060000, 217 },
-    { -3, 0x46050000, 216 },
-    { 20, 0x40320000, 102 },
-    { 17, 0x40270000, 195 },
-    { 16, 0x40260000, 194 },
-    { 15, 0x40250000, 193 },
-    { 8, 0x40210000, 119 },
-    { 1, 0x40200000, 98 },
-    { 11, 0x401d0000, 225 },
-    { 10, 0x401c0000, 205 },
-    { -2, 0x400a0000, 215 },
-    { -1, 0x40090000, 166 },
-    { 14, 0x40080000, 204 },
-    { 13, 0x40070000, 203 },
-    { 12, 0x40060000, 196 },
-    { 7, 0x40050000, 129 },
-    { 6, 0x40040000, 128 },
-    { 5, 0x40030000, 124 },
-    { 4, 0x40020000, 107 },
-    { 3, 0x40010000, 106 },
-    { 2, 0x40000000, 105 },
+    { 1, 0x40200000, 98, 98 },
+    { 2, 0x40000000, 105, 105 },
+    { 3, 0x40010000, 106, 106 },
+    { 4, 0x40020000, 107, 107 },
+    { 5, 0x40030000, 124, 124 },
+    { 6, 0x40040000, 128, 128 },
+    { 7, 0x40050000, 129, 129 },
+    { 8, 0x40210000, 119, 119 },
+    { 10, 0x401c0000, 205, 205 },
+    { 11, 0x401d0000, 225, 225 },
+    { 12, 0x40060000, 196, 196 },
+    { 13, 0x40070000, 203, 203 },
+    { 14, 0x40080000, 204, 204 },
+    { 15, 0x40250000, 193, 193 },
+    { 16, 0x40260000, 194, 194 },
+    { 17, 0x40270000, 195, 195 },
+    { 20, 0x40320000, 102, 102 },
+    { -1, 0x40090000, 166, 166 },
+    { -2, 0x400a0000, 215, 215 },
+    { -3, 0x46050000, 216, 216 },
+    { -4, 0x46060000, 217, 217 },
+    { -5, 0x46070000, 218, 218 },
 };
 
 static const struct TIMInit i2cinits[] = {
-    { 1, 0x40120000, 108 },
-    { 2, 0x40130000, 110 },
-    { 3, 0x40140000, 137 },
-    { 4, 0x40150000, 168 },
-    { 5, 0x40160000, 181 },
-    { 6, 0x40170000, 208 },
-    { 7, 0x40180000, 210 },
-    { 8, 0x46040000, 212 }
+    { 1, 0x40120000, 108, 0 },
+    { 2, 0x40130000, 110, 0 },
+    { 3, 0x40140000, 137, 0 },
+    { 4, 0x40150000, 168, 0 },
+    { 5, 0x40160000, 181, 0 },
+    { 6, 0x40170000, 208, 0 },
+    { 7, 0x40180000, 210, 0 },
+    { 8, 0x46040000, 212, 0 }
 };
 
 static const struct TIMInit sdmmcinits[] = {
-    { 1, 0x48220000, 123 },
-    { 2, 0x48230000, 197 },
-    { 3, 0x48240000, 214 }
+    { 1, 0x48220000, 123, 0 },
+    { 2, 0x48230000, 197, 0 },
+    { 3, 0x48240000, 214, 0 }
 };
 
 static const struct TIMInit adcinits[] = {
-    { 1, 0x404e0000, 87 },
-    { 3, 0x404f0000, 89 }
+    { 1, 0x404e0000, 87, 0 },
+    { 3, 0x404f0000, 89, 0 }
 };
 
 static const struct TIMInit extiinits[] = {
-    { 1, 0x44220000, 0 },
-    { 2, 0x46230000, 0 }
+    { 1, 0x44220000, 0, 0 },
+    { 2, 0x46230000, 0, 0 }
 };
 
 struct GKMachineState {
@@ -202,7 +203,7 @@ static void gk_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "armv7m-subsystem", &mc->cm33, TYPE_ARMV7M);
     object_property_set_str(OBJECT(&mc->cm33), "cpu-type", 
                             ARM_CPU_TYPE_NAME("cortex-m33"), &error_fatal);
-    object_property_set_uint(OBJECT(&mc->cm33), "num-irq", 64, &error_fatal);
+    object_property_set_uint(OBJECT(&mc->cm33), "num-irq", 327, &error_fatal);
     object_property_set_link(OBJECT(&mc->cm33), "memory", 
                             OBJECT(get_system_memory()), &error_fatal);
     object_property_set_bool(OBJECT(&mc->cm33), "start-powered-off", true, &error_fatal);
@@ -345,6 +346,12 @@ static void gk_machine_init(MachineState *machine)
 
         sysbus_connect_irq(SYS_BUS_DEVICE(&mc->tims[i]), 0,
             qdev_get_gpio_in(DEVICE(mc->gic), timinits[i].gic_irq));
+
+        if(timinits[i].nvic_irq)
+        {
+            sysbus_connect_irq(SYS_BUS_DEVICE(&mc->tims[i]), 0,
+                qdev_get_gpio_in(DEVICE(&mc->cm33), timinits[i].nvic_irq));
+        }
     }
 
     object_initialize_child(OBJECT(machine), "rtc", &mc->rtc, TYPE_STM32MP2_RTC);
@@ -425,6 +432,10 @@ static void gk_machine_init(MachineState *machine)
     }
 
     // i2c devices
+    mc->i2cs[0].devs[0x20] = (struct i2c_device *)qdev_new(TYPE_I2C_PCA6416);
+    object_property_add_child(OBJECT(&mc->i2cs[0]), "PCA6416@0x20", OBJECT(mc->i2cs[0].devs[0x20]));
+    qdev_realize(DEVICE(mc->i2cs[0].devs[0x20]), NULL, &error_fatal);
+
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);
     object_property_add_child(OBJECT(&mc->i2cs[1]), "INA236@0x40", OBJECT(mc->i2cs[1].devs[0x40]));
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x40]), NULL, &error_fatal);
@@ -436,6 +447,10 @@ static void gk_machine_init(MachineState *machine)
     mc->i2cs[1].devs[0x6b] = (struct i2c_device *)qdev_new(TYPE_I2C_BQ25601);
     object_property_add_child(OBJECT(&mc->i2cs[1]), "BQ25601@0x6B", OBJECT(mc->i2cs[1].devs[0x6b]));
     qdev_realize(DEVICE(mc->i2cs[1].devs[0x6b]), NULL, &error_fatal);
+
+    mc->i2cs[3].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_GSLX680);
+    object_property_add_child(OBJECT(&mc->i2cs[3]), "GSLX680@0x40", OBJECT(mc->i2cs[3].devs[0x40]));
+    qdev_realize(DEVICE(mc->i2cs[3].devs[0x40]), NULL, &error_fatal);
 
     // SD card
     dinfo = drive_get(IF_SD, 0, 0);

@@ -153,13 +153,13 @@ static void update_irq(struct Stm32MP2EXTIState *s)
                 {
                     s->irq_set[core][i * 32 + bit] = 1;
                     qemu_set_irq(s->irqs[core][i * 32 + bit], 1);
-                    fprintf(stderr, "EXTI: set output core %u, irq %u\n", core, i * 32 + bit);
+                    //fprintf(stderr, "EXTI: set output core %u, irq %u\n", core, i * 32 + bit);
                 }
                 else if(!(mv & bittest) && s->irq_set[core][i * 32 + bit] == 1)
                 {
                     s->irq_set[core][i * 32 + bit] = 0;
                     qemu_set_irq(s->irqs[core][i * 32 + bit], 0);
-                    fprintf(stderr, "EXTI: clear output core %u, irq %u\n", core, i * 32 + bit);
+                    //fprintf(stderr, "EXTI: clear output core %u, irq %u\n", core, i * 32 + bit);
                 }
             }
         }
@@ -174,7 +174,7 @@ static void cpu2_sysresetq(void *opaque, int n, int level)
 
 static void cpu2_sev(void *opaque, int n, int level)
 {
-    fprintf(stderr, "EXTI: CPU2_SEV: %d\n", level);
+    //fprintf(stderr, "EXTI: CPU2_SEV: %d\n", level);
     // event 64
     struct Stm32MP2EXTIState *s = (struct Stm32MP2EXTIState *)opaque;
     if(level && (s->regs[0x40/4] & 0x1))

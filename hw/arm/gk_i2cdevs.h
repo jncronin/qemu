@@ -32,6 +32,8 @@
 #define TYPE_I2C_INA236A "ina236a"
 #define TYPE_I2C_MAX17048 "max17048"
 #define TYPE_I2C_BQ25601 "bq25601"
+#define TYPE_I2C_PCA6416 "pca6416"
+#define TYPE_I2C_GSLX680 "gslx680"
 
 struct i2c_device
 {
@@ -62,6 +64,22 @@ struct BQ25601_state
     struct i2c_device base;
     int bytes_since_start;
     int reg_id;
+};
+
+struct PCA6416_state
+{
+    struct i2c_device base;
+    int bytes_since_start;
+    int reg_id;
+};
+
+struct GSLX680_state
+{
+    struct i2c_device base;
+    int bytes_since_start;
+    int reg_id;
+
+    qemu_irq irq;
 };
 
 #endif
