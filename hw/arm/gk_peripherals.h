@@ -45,6 +45,7 @@
 #define TYPE_STM32MP2_SDMMC "stm32mp2-sdmmc"
 #define TYPE_STM32MP2_CA35_SYSCFG "stm32mp2-ca35-syscfg"
 #define TYPE_STM32MP2_ADC "stm32mp2-adc"
+#define TYPE_STM32MP2_EXTI "stm32mp2-exti"
 
 struct Stm32MP2CA35_SYSCFGState;
 
@@ -242,6 +243,22 @@ struct Stm32MP2ADCState
     struct adcc com;
 
     int irq_set;
+};
+
+#define STM32MP2_EXTI_NIRQ  96
+
+struct Stm32MP2EXTIState
+{
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    qemu_irq irqs[2][STM32MP2_EXTI_NIRQ];
+
+    int irq_set[2][STM32MP2_EXTI_NIRQ];
+
+    uint32_t regs[0x400/4];
 };
 
 #endif

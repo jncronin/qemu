@@ -99,6 +99,11 @@ static const struct TIMInit adcinits[] = {
     { 3, 0x404f0000, 89 }
 };
 
+static const struct TIMInit extiinits[] = {
+    { 1, 0x44220000, 0 },
+    { 2, 0x46230000, 0 }
+};
+
 struct GKMachineState {
     /*< private >*/
     MachineState parent_obj;
@@ -122,6 +127,7 @@ struct GKMachineState {
     struct Stm32MP2SDMMCState sdmmc[sizeof(sdmmcinits) / sizeof(sdmmcinits[0])];
     struct Stm32MP2CA35_SYSCFGState ca35_syscfg;
     struct Stm32MP2ADCState adc[sizeof(adcinits) / sizeof(adcinits[0])];
+    struct Stm32MP2EXTIState exti[sizeof(extiinits) / sizeof(extiinits[0])];
 
     DeviceState *gic;
 };
@@ -305,6 +311,20 @@ static void gk_machine_init(MachineState *machine)
         blk_by_legacy_dinfo(dinfo), 4 * KiB, 4, 0, 0, 0, 0, 0);
 
     /* peripherals */
+    for(unsigned i = 0; i < sizeof(extiinits) / sizeof(extiinits[0]); i++)
+    {
+        g_autofree char *str_extiname = g_strdup_printf("EXTI%d", extiinits[i].id);
+        
+        object_initialize_child(OBJECT(machine), str_extiname, &mc->exti[i], TYPE_STM32MP2_EXTI);
+        qdev_prop_set_int32(DEVICE(&mc->exti[i]), "id", extiinits[i].id);
+        sysbus_realize(SYS_BUS_DEVICE(&mc->exti[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->exti[i]), 0, extiinits[i].base);
+    }
+    qdev_connect_gpio_out_named(DEVICE(&mc->cm33), "sev-out", 0,
+        qdev_get_gpio_in_named(DEVICE(&mc->exti[0]), "cpu2_sev", 0));
+    qdev_connect_gpio_out(DEVICE(&mc->exti[0]), 64,
+        qdev_get_gpio_in(DEVICE(mc->gic), 220));
+
     object_initialize_child(OBJECT(machine), "usart6", &mc->usart6, TYPE_STM32MP2_USART);
     //qdev_prop_set_chr(DEVICE_STATE(&mc->usart6), "chardev", serial_hd(0));
     sysbus_realize(SYS_BUS_DEVICE(&mc->usart6), &error_fatal);
