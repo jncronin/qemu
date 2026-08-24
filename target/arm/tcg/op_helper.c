@@ -26,6 +26,8 @@
 #include "accel/tcg/cpu-loop.h"
 #include "accel/tcg/probe.h"
 #include "cpregs.h"
+#include "hw/core/irq.h"
+
 
 #define SIGNBIT (uint32_t)0x80000000
 #define SIGNBIT64 ((uint64_t)1 << 63)
@@ -475,12 +477,18 @@ void HELPER(wfit)(CPUARMState *env, uint32_t rd)
 void HELPER(sev)(CPUARMState *env)
 {
     CPUState *cs = env_cpu(env);
+    ARMCPU *cpu = env_archcpu(env); 
     CPU_FOREACH(cs) {
         ARMCPU *target_cpu = ARM_CPU(cs);
         target_cpu->env.event_register = true;
         if (!qemu_cpu_is_self(cs)) {
             qemu_cpu_kick(cs);
         }
+    }
+    if(cpu->enable_sev_out)
+    {
+        qemu_set_irq(cpu->sev_out, 1);
+        qemu_set_irq(cpu->sev_out, 0);
     }
 }
 

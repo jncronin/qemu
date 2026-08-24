@@ -998,6 +998,9 @@ struct ArchCPU {
     /* Current power state, access guarded by BQL */
     ARMPSCIState power_state;
 
+    /* SEV output line */
+    qemu_irq sev_out;
+
     /* CPU has virtualization extension */
     bool has_el2;
     /* CPU has security extension */
@@ -1067,6 +1070,9 @@ struct ArchCPU {
 
     /* QOM property to indicate we should use the back-compat QARMA5 default */
     bool backcompat_pauth_default_use_qarma5;
+
+    /* QOM property to enable sev-out gpio */
+    bool enable_sev_out;
 
     /* Specify the number of cores in this CPU cluster. Used for the L2CTLR
      * register.

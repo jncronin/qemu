@@ -1819,6 +1819,12 @@ static void arm_cpu_realizefn(DeviceState *dev, Error **errp)
     CPUARMState *env = &cpu->env;
     Error *local_err = NULL;
 
+    if(cpu->enable_sev_out)
+    {
+        qdev_init_gpio_out_named(DEVICE(cpu), &cpu->sev_out,
+                                "sev-out", 1);
+    }
+
 #if defined(CONFIG_TCG) && !defined(CONFIG_USER_ONLY)
     /* Use pc-relative instructions in system-mode */
     tcg_cflags_set(cs, CF_PCREL);
@@ -2495,6 +2501,7 @@ static const Property arm_cpu_properties[] = {
     DEFINE_PROP_BOOL("backcompat-cntfrq", ARMCPU, backcompat_cntfrq, false),
     DEFINE_PROP_BOOL("backcompat-pauth-default-use-qarma5", ARMCPU,
                       backcompat_pauth_default_use_qarma5, false),
+    DEFINE_PROP_BOOL("enable-sev-out", ARMCPU, enable_sev_out, false),
 };
 
 static const gchar *arm_gdb_arch_name(CPUState *cs)

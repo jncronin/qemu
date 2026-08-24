@@ -334,6 +334,8 @@ static void armv7m_realize(DeviceState *dev, Error **errp)
     }
     object_property_set_bool(OBJECT(s->cpu), "start-powered-off",
                              s->start_powered_off, &error_abort);
+    object_property_set_bool(OBJECT(s->cpu), "enable-sev-out",
+                            s->enable_sev_out, &error_abort);
 
     /*
      * Real M-profile hardware can be configured with a different number of
@@ -377,6 +379,12 @@ static void armv7m_realize(DeviceState *dev, Error **errp)
     qdev_pass_gpios(DEVICE(&s->nvic), dev, NULL);
     qdev_pass_gpios(DEVICE(&s->nvic), dev, "SYSRESETREQ");
     qdev_pass_gpios(DEVICE(&s->nvic), dev, "NMI");
+
+    /* Alias CPU's sev_out pin, if enabled */
+    if(s->enable_sev_out)
+    {
+        qdev_pass_gpios(DEVICE(s->cpu), dev, "sev-out");
+    }
 
     /*
      * We map various devices into the container MR at their architected
@@ -560,6 +568,7 @@ static const Property armv7m_properties[] = {
     DEFINE_PROP_BOOL("enable-bitband", ARMv7MState, enable_bitband, false),
     DEFINE_PROP_BOOL("start-powered-off", ARMv7MState, start_powered_off,
                      false),
+    DEFINE_PROP_BOOL("enable-sev-out", ARMv7MState, enable_sev_out, false),
     DEFINE_PROP_BOOL("vfp", ARMv7MState, vfp, true),
     DEFINE_PROP_BOOL("dsp", ARMv7MState, dsp, true),
     DEFINE_PROP_UINT32("mpu-ns-regions", ARMv7MState, mpu_ns_regions, UINT_MAX),

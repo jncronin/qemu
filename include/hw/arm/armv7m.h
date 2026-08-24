@@ -106,6 +106,7 @@ struct ARMv7MState {
     uint32_t mpu_s_regions;
     bool enable_bitband;
     bool start_powered_off;
+    bool enable_sev_out;
     bool vfp;
     bool dsp;
 };
