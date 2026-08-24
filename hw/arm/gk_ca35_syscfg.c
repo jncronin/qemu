@@ -31,12 +31,22 @@ static void stm32mp2_CA35_SYSCFG_write(void *opaque, hwaddr addr,
 
         case 0x20a4:
             s->m33_initsvtor_cr = val64;
+            {
+                CPUState *cs = CPU(s->cm33->cpu);
+                ARMCPU *cpu = ARM_CPU(cs);
+                cpu->init_svtor = val64;
+            }
             break;
 
         case 0x20a8:
             s->m33_initnsvtor_cr = val64;
+            {
+                CPUState *cs = CPU(s->cm33->cpu);
+                ARMCPU *cpu = ARM_CPU(cs);
+                cpu->init_nsvtor = val64;
+            }
             break;
-            
+
         default:
             fprintf(stderr, "CA35_SYSCFG: write %x to %p\n", (unsigned)val64, (void *)addr);
     }

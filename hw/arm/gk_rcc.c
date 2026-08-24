@@ -13,6 +13,7 @@ struct Stm32MP2PLLClass
 };
 
 static void rcc_reset_cm33(struct Stm32MP2RCCState *s);
+static void rcc_start_cm33(struct Stm32MP2RCCState *s);
 
 OBJECT_DECLARE_TYPE(Stm32MP2RCCState, Stm32MP2RCCClass,
                     STM32MP2_RCC)
@@ -122,14 +123,10 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
             // C2RST
             if(val64 & 0x1)
             {
-                if(!resettable_is_in_reset(OBJECT(s->cm33)))
-                {
-                    resettable_assert_reset(OBJECT(s->cm33), RESET_TYPE_COLD);
-                }
+                rcc_reset_cm33(s);
                 if(s->regs[0x434/4] & 0x1)
                 {
-                    rcc_reset_cm33(s);
-                    resettable_release_reset(OBJECT(s->cm33), RESET_TYPE_COLD);
+                    rcc_start_cm33(s);
                 }
                 s->regs[0x40c/4] &= ~0x1;
             }
@@ -139,11 +136,7 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
             // cpubootcr
             if(val64 & 0x1)
             {
-                if(resettable_is_in_reset(OBJECT(s->cm33)))
-                {
-                    rcc_reset_cm33(s);
-                    resettable_release_reset(OBJECT(s->cm33), RESET_TYPE_COLD);
-                }
+                rcc_start_cm33(s);
             }
             break;
 
@@ -170,6 +163,14 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
                 s->regs[0x440 / 4] |= 0x4;
             else
                 s->regs[0x440 / 4] &= ~0x4;
+            break;
+
+        case 0x7e8:
+            qemu_set_irq(s->adc_rst[0], val64 & 0x1);
+            break;
+
+        case 0x7ec:
+            qemu_set_irq(s->adc_rst[1], val64 & 0x1);
             break;
 
         case 0x830:
@@ -260,12 +261,14 @@ static void stm32mp2_RCC_init(Object *obj)
     }
 
     qdev_init_gpio_out_named(DEVICE(obj), &s->sdmmc1_rst, "sdmmc1_rst", 1);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->adc_rst[0], "adc_rst", sizeof(s->adc_rst) / sizeof(s->adc_rst[0]));
 
     s->ck_icn_hs_mcu = qdev_init_clock_out(DEVICE(s), "ck_icn_hs_mcu");
     clock_set_hz(s->ck_icn_hs_mcu, 400000000);
     s->ck_cm33_systick = qdev_init_clock_out(DEVICE(s), "ck_cm33_systick");
     clock_set_source(s->ck_cm33_systick, s->ck_icn_hs_mcu);
-    clock_set_mul_div(s->ck_cm33_systick, 1, 8);
+    clock_set_mul_div(s->ck_cm33_systick, 8, 1);
+    clock_propagate(s->ck_icn_hs_mcu);
 }
 
 static void stm32mp2_RCC_class_init(ObjectClass *class,
@@ -318,6 +321,13 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
     CPUState *cpu = CPU(s->cm33->cpu);
     cpu_interrupt(cpu, CPU_INTERRUPT_HALT);
     cpu_exit(cpu);
+    queue_tb_flush(cpu);
+
+    device_cold_reset(DEVICE(s->cm33));
+    device_cold_reset(DEVICE(s->cm33->cpu));
+    device_cold_reset(DEVICE(&s->cm33->nvic));
+    device_cold_reset(DEVICE(&s->cm33->systick[0]));
+    device_cold_reset(DEVICE(&s->cm33->systick[1]));
 
     CPUARMState *env = cpu_env(cpu);
     ARMCPU *arm_cpu = ARM_CPU(cpu);
@@ -338,9 +348,19 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
 
     arm_cpu->power_state = PSCI_ON;
     env->halt_reason = 0;
+    cpu->halted = 1;
+}
 
-    queue_tb_flush(cpu);
+static void rcc_start_cm33(struct Stm32MP2RCCState *s)
+{
+    CPUState *cpu = CPU(s->cm33->cpu);
+    CPUARMState *env = cpu_env(cpu);
+    rcc_reset_cm33(s);
 
+    fprintf(stderr, "CM33: reset with exception: %d, cfsr[S]: %x, cfsr[NS]: %x, ccr[S]: %x, ccr[NS]: %x\n",
+        env->v7m.exception,
+        env->v7m.cfsr[M_REG_S], env->v7m.cfsr[M_REG_NS],
+        env->v7m.ccr[M_REG_S], env->v7m.ccr[M_REG_NS]);
     if(cpu->halted)
     {
         cpu->halted = 0;
