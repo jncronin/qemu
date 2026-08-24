@@ -94,6 +94,11 @@ static const struct TIMInit sdmmcinits[] = {
     { 3, 0x48240000, 214 }
 };
 
+static const struct TIMInit adcinits[] = {
+    { 1, 0x404e0000, 87 },
+    { 3, 0x404f0000, 89 }
+};
+
 struct GKMachineState {
     /*< private >*/
     MachineState parent_obj;
@@ -116,6 +121,7 @@ struct GKMachineState {
     struct Stm32MP2LTDCState ltdc;
     struct Stm32MP2SDMMCState sdmmc[sizeof(sdmmcinits) / sizeof(sdmmcinits[0])];
     struct Stm32MP2CA35_SYSCFGState ca35_syscfg;
+    struct Stm32MP2ADCState adc[sizeof(adcinits) / sizeof(adcinits[0])];
 
     DeviceState *gic;
 };
@@ -379,6 +385,24 @@ static void gk_machine_init(MachineState *machine)
         (Object **)&mc->rcc.ca35_syscfg,
         object_property_allow_set_link, 0);
     object_property_set_link(OBJECT(&mc->rcc), "ca35_syscfg", OBJECT(&mc->ca35_syscfg), &error_fatal);
+
+    for(unsigned i = 0; i < sizeof(adcinits) / sizeof(adcinits[0]); i++)
+    {
+        int id = adcinits[i].id;
+        g_autofree char *str_adcname = g_strdup_printf("ADC%d", id);
+
+        object_initialize_child(OBJECT(machine), str_adcname, &mc->adc[i], TYPE_STM32MP2_ADC);
+        qdev_prop_set_int32(DEVICE(&mc->adc[i]), "id", id);
+
+        sysbus_realize(SYS_BUS_DEVICE(&mc->adc[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->adc[i]), 0, adcinits[i].base);
+
+        sysbus_connect_irq(SYS_BUS_DEVICE(&mc->adc[i]), 0,
+            qdev_get_gpio_in(DEVICE(mc->gic), adcinits[i].gic_irq));
+
+        qdev_connect_gpio_out_named(DEVICE(&mc->rcc), "adc_rst", i,
+            qdev_get_gpio_in_named(DEVICE(&mc->adc[i]), "rst", 0));
+    }
 
     // i2c devices
     mc->i2cs[1].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_INA236A);
