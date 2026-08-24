@@ -1,5 +1,6 @@
 #include "gk_peripherals.h"
 #include "exec/tb-flush.h"
+#include "accel/tcg/cpu-loop.h"
 
 /* STM32MP2 RCC */
 struct Stm32MP2RCCClass
@@ -319,11 +320,10 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
         s->ca35_syscfg->m33_initnsvtor_cr);
 
     CPUState *cpu = CPU(s->cm33->cpu);
+    cpu->halted = 1;
     cpu_interrupt(cpu, CPU_INTERRUPT_HALT);
     cpu_exit(cpu);
     queue_tb_flush(cpu);
-
-    cpu->halted = 1;
 
     device_cold_reset(DEVICE(s->cm33));
     device_cold_reset(DEVICE(s->cm33->cpu));
@@ -331,14 +331,13 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
     device_cold_reset(DEVICE(&s->cm33->systick[0]));
     device_cold_reset(DEVICE(&s->cm33->systick[1]));
 
+    cpu_reset(cpu);
+
     CPUARMState *env = cpu_env(cpu);
     ARMCPU *arm_cpu = ARM_CPU(cpu);
     env->v7m.vecbase[M_REG_S] = s->ca35_syscfg->m33_initsvtor_cr;
     env->v7m.vecbase[M_REG_NS] = s->ca35_syscfg->m33_initnsvtor_cr;
     env->v7m.secure = s->ca35_syscfg->m33_tzen_cr & 0x1;
-    env->thumb = 1;
-    cpsr_write(env, 0x01000000, CPSR_T, CPSRWriteRaw);
-    arm_rebuild_hflags(env);
 
     uint32_t sp, pc;
     uint32_t vtor = (s->ca35_syscfg->m33_tzen_cr & 0x1) ? s->ca35_syscfg->m33_initsvtor_cr :
@@ -349,6 +348,10 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
     le32_to_cpus(&pc);
     env->regs[13] = sp;
     env->regs[15] = pc & ~0x1u;
+
+    env->thumb = 1;
+    cpsr_write(env, CPSR_T, CPSR_T, CPSRWriteRaw);
+    arm_rebuild_hflags(env);
 
     arm_cpu->power_state = PSCI_ON;
     env->halt_reason = 0;
@@ -361,10 +364,11 @@ static void rcc_start_cm33(struct Stm32MP2RCCState *s)
     CPUARMState *env = cpu_env(cpu);
     rcc_reset_cm33(s);
 
-    fprintf(stderr, "CM33: reset with exception: %d, cfsr[S]: %x, cfsr[NS]: %x, ccr[S]: %x, ccr[NS]: %x\n",
+    fprintf(stderr, "CM33: reset with exception: %d, cfsr[S]: %x, cfsr[NS]: %x, ccr[S]: %x, ccr[NS]: %x, cpsr: %x\n",
         env->v7m.exception,
         env->v7m.cfsr[M_REG_S], env->v7m.cfsr[M_REG_NS],
-        env->v7m.ccr[M_REG_S], env->v7m.ccr[M_REG_NS]);
+        env->v7m.ccr[M_REG_S], env->v7m.ccr[M_REG_NS],
+        cpsr_read(env));
     if(cpu->halted)
     {
         cpu->halted = 0;
