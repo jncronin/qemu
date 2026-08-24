@@ -323,6 +323,8 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
     cpu_exit(cpu);
     queue_tb_flush(cpu);
 
+    cpu->halted = 1;
+
     device_cold_reset(DEVICE(s->cm33));
     device_cold_reset(DEVICE(s->cm33->cpu));
     device_cold_reset(DEVICE(&s->cm33->nvic));
@@ -335,6 +337,8 @@ static void rcc_reset_cm33(struct Stm32MP2RCCState *s)
     env->v7m.vecbase[M_REG_NS] = s->ca35_syscfg->m33_initnsvtor_cr;
     env->v7m.secure = s->ca35_syscfg->m33_tzen_cr & 0x1;
     env->thumb = 1;
+    cpsr_write(env, 0x01000000, CPSR_T, CPSRWriteRaw);
+    arm_rebuild_hflags(env);
 
     uint32_t sp, pc;
     uint32_t vtor = (s->ca35_syscfg->m33_tzen_cr & 0x1) ? s->ca35_syscfg->m33_initsvtor_cr :
