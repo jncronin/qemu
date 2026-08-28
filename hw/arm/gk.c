@@ -384,6 +384,8 @@ static void gk_machine_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(&mc->ltdc), 0, 0x48010000);
     sysbus_connect_irq(SYS_BUS_DEVICE(&mc->ltdc), 0,
         qdev_get_gpio_in(DEVICE(mc->gic), 158));
+    qdev_connect_gpio_out_named(DEVICE(&mc->rcc), "ltdc_rst", 0,
+        qdev_get_gpio_in_named(DEVICE(&mc->ltdc), "rst", 0));
 
     for(unsigned i = 0; i < sizeof(sdmmcinits) / sizeof(sdmmcinits[0]); i++)
     {

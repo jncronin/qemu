@@ -77,6 +77,7 @@ struct Stm32MP2RCCState {
 
     qemu_irq sdmmc1_rst;
     qemu_irq adc_rst[2];
+    qemu_irq ltdc_rst;
 
     Clock *ck_icn_hs_mcu;
     Clock *ck_cm33_systick;
@@ -180,6 +181,9 @@ struct Stm32MP2LTDCState {
     SDL_Window *w;
     SDL_Renderer *r;
     SDL_Texture *t;
+
+
+    int irq_set;
 };
 
 struct Stm32MP2SDMMCState

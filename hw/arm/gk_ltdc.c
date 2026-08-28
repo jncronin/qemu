@@ -23,6 +23,7 @@ static void ltdc_update_size(struct Stm32MP2LTDCState *ltdc);
 static void ltdc_update_size_main_thread(void *);
 static void ltdc_layer_resize_main_thread(void *);
 static int ltdc_ckey_palette_blit(struct Stm32MP2LTDCLayer *l, void *host_addr, uint32_t stride);
+static void ltdc_reset(void *opaque, int n, int level);
 
 static const GraphicHwOps ltdc_gfx_ops = {
     .invalidate  = ltdc_invalidate_display,
@@ -106,7 +107,11 @@ static void stm32mp2_LTDC_write(void *opaque, hwaddr addr,
                 s->isr = s->isr & (0xfffffe30 | ~(uint32_t)val64);
                 if(!s->isr && old_isr)
                 {
-                    qemu_set_irq(s->irq, 0);
+                    if(s->irq_set)
+                    {
+                        s->irq_set = 0;
+                        qemu_set_irq(s->irq, 0);
+                    }
                     //fprintf(stderr, "LTDC: CLEAR IRQ\n");
                 }
             }
@@ -381,6 +386,7 @@ static void stm32mp2_LTDC_init(Object *obj)
                           TYPE_STM32MP2_LTDC, 0x400);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_in_named(DEVICE(obj), ltdc_reset, "rst", 1);
 
     //s->clk_out = qdev_init_clock_out(DEVICE(s), "clk_out");
     //s->clk_out = clock_new(obj, "clk_out");
@@ -397,9 +403,8 @@ static void stm32mp2_LTDC_init(Object *obj)
     {
         s->layers[i].resize_bh = qemu_bh_new(ltdc_layer_resize_main_thread, &s->layers[i]);
         s->layers[i].s = s;
-        s->layers[i].r.rcr = 0x4;
-        s->layers[i].sr.rcr = 0x4;
     }
+    ltdc_reset(s, 0, 1);
 
     // create an offscreen renderer associated to a hidden window
     s->w = SDL_CreateWindow("", 0, 0, 800, 480, SDL_WINDOW_HIDDEN);
@@ -617,9 +622,10 @@ static void tim_cb(void *opaque /*, enum ClockEvent */)
     }
 
     s->isr |= 0x1;
-    if(s->ier & 0x1)
+    if(s->ier & 0x1 && !s->irq_set)
     {
         //fprintf(stderr, "LTDC: VSYNC: IRQ\n");
+        s->irq_set = 1;
         qemu_set_irq(s->irq, 1);
     }
     //fprintf(stderr, "LTDC: VSYNC: END\n");
@@ -950,4 +956,64 @@ static int ltdc_ckey_palette_blit(struct Stm32MP2LTDCLayer *l, void *src_addr, u
 
     SDL_UnlockTexture(l->t);
     return 0;
+}
+
+static void ltdc_reset(void *opaque, int n, int level)
+{
+    struct Stm32MP2LTDCState *s = (struct Stm32MP2LTDCState *)opaque;
+    (void)s;
+    if(level)
+    {    
+        s->sscr = 0;
+        s->bpcr = 0;
+        s->awcr = 0;
+        s->twcr = 0;
+        s->gcr = 0x2220;
+        s->srcr = 0;
+        s->gccr = 0;
+        s->bccr = 0;
+        s->ier = 0;
+        s->isr = 0;
+        s->lipcr = 0;
+        for(unsigned int i = 0; i < 3; i++)
+        {
+            struct Stm32MP2LTDCLayer *l = &s->layers[i];
+            l->sr.rcr = 4;
+            l->sr.cr = 0;
+            l->sr.whpcr = 0;
+            l->sr.wvpcr = 0;
+            l->sr.ckcr = 0;
+            l->sr.pfcr = 0;
+            l->sr.cacr = 0;
+            l->sr.dccr = 0;
+            l->sr.bfcr = 0x607u | (i << 16);
+            l->sr.blcr = 0;
+            l->sr.pcr = 0;
+            l->sr.cfbar = 0;
+            l->sr.cfblr = 0;
+            l->sr.cfblnr = 0;
+            l->sr.afba0r = 0;
+            l->sr.afba1r = 0;
+            l->sr.afblr = 0;
+            l->sr.afblnr = 0;
+            l->sr.sisr = 0;
+            l->sr.sosr = 0;
+            l->sr.svsfr = 0;
+            l->sr.svspr = 0;
+            l->sr.shsfr = 0;
+            l->sr.shspr = 0;
+            l->sr.cyr0r = 0;
+            l->sr.cyr1r = 0;
+            l->sr.fpf0r = 0x00021100u;
+            l->sr.fpf1r = 0x00123110u;
+
+            memcpy(&l->r, &l->sr, sizeof(l->r));
+        }
+
+        if(s->irq_set)
+        {
+            qemu_set_irq(s->irq, 0);
+            s->irq_set = 0;
+        }
+    }
 }

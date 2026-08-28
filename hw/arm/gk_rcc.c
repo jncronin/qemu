@@ -178,6 +178,10 @@ static void stm32mp2_RCC_write(void *opaque, hwaddr addr,
             qemu_set_irq(s->sdmmc1_rst, val64 & 0x1);
             break;
 
+        case 0x840:
+            qemu_set_irq(s->ltdc_rst, val64 & 0x1);
+            break;
+
         case 0x1000:    // MUXSELCFGR
             {
                 uint64_t pll8sel = (val64 >> 16) & 0x3u;
@@ -263,6 +267,7 @@ static void stm32mp2_RCC_init(Object *obj)
 
     qdev_init_gpio_out_named(DEVICE(obj), &s->sdmmc1_rst, "sdmmc1_rst", 1);
     qdev_init_gpio_out_named(DEVICE(obj), &s->adc_rst[0], "adc_rst", sizeof(s->adc_rst) / sizeof(s->adc_rst[0]));
+    qdev_init_gpio_out_named(DEVICE(obj), &s->ltdc_rst, "ltdc_rst", 1);
 
     s->ck_icn_hs_mcu = qdev_init_clock_out(DEVICE(s), "ck_icn_hs_mcu");
     clock_set_hz(s->ck_icn_hs_mcu, 400000000);
