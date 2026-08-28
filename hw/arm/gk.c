@@ -34,6 +34,7 @@
 #include "hw/intc/arm_gic.h"
 #include "hw/arm/bsa.h"
 #include "hw/arm/armv7m.h"
+#include "hw/core/split-irq.h"
 #include "gk_i2cdevs.h"
 #include "gk_peripherals.h"
 #include <time.h>
@@ -134,6 +135,9 @@ struct GKMachineState {
 
     DeviceState *gic;
 };
+
+void gk_connect_irq(struct GKMachineState *s, SysBusDevice *dev_from, unsigned int irq_no,
+    unsigned int gic_irq, unsigned int nvic_irq);
 
 static const char *gk_cpu_types[] = { 
     ARM_CPU_TYPE_NAME("cortex-a35"), 
@@ -346,14 +350,8 @@ static void gk_machine_init(MachineState *machine)
         sysbus_realize(SYS_BUS_DEVICE(&mc->tims[i]), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(&mc->tims[i]), 0, timinits[i].base);
 
-        sysbus_connect_irq(SYS_BUS_DEVICE(&mc->tims[i]), 0,
-            qdev_get_gpio_in(DEVICE(mc->gic), timinits[i].gic_irq));
-
-        if(timinits[i].nvic_irq)
-        {
-            sysbus_connect_irq(SYS_BUS_DEVICE(&mc->tims[i]), 0,
-                qdev_get_gpio_in(DEVICE(&mc->cm33), timinits[i].nvic_irq));
-        }
+        gk_connect_irq(mc, SYS_BUS_DEVICE(&mc->tims[i]), 0, timinits[i].gic_irq,
+            timinits[i].nvic_irq);
     }
 
     object_initialize_child(OBJECT(machine), "rtc", &mc->rtc, TYPE_STM32MP2_RTC);
@@ -503,3 +501,25 @@ static const TypeInfo gk_machine_types[] = {
 };
 
 DEFINE_TYPES(gk_machine_types)
+
+/* Create an irq splitter to send the irq to both interrupt controllers simultaneously */
+void gk_connect_irq(struct GKMachineState *mc, SysBusDevice *dev_from, unsigned int irq_no,
+    unsigned int gic_irq, unsigned int nvic_irq)
+{
+    DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+    qdev_prop_set_uint32(split, "num-lines", 2);
+    qdev_realize_and_unref(split, NULL, &error_fatal);
+
+    sysbus_connect_irq(dev_from, irq_no,
+        qdev_get_gpio_in(split, 0));
+    if(gic_irq)
+    {
+        qdev_connect_gpio_out(split, 0,
+            qdev_get_gpio_in(DEVICE(mc->gic), gic_irq));
+    }
+    if(nvic_irq)
+    {
+        qdev_connect_gpio_out(split, 1,
+            qdev_get_gpio_in(DEVICE(&mc->cm33), nvic_irq));
+    }
+}
