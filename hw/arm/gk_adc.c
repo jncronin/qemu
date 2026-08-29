@@ -281,12 +281,12 @@ static const MemoryRegionOps stm32mp2_ADC_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
     .valid = {
         .max_access_size = 4,
-        .min_access_size = 4,
+        .min_access_size = 1,
         .unaligned = false
     },
     .impl = {
         .max_access_size = 4,
-        .min_access_size = 4,
+        .min_access_size = 1,
         .unaligned = false
     },
 };

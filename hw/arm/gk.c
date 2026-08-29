@@ -121,6 +121,12 @@ static const struct TIMInit gpioinits[] = {
     { GK_GPIOZ, 0x46200000, 0, 0 },
 };
 
+static const struct TIMInit dmainits[] = {
+    { 1, 0x40400000, 33, 33 },
+    { 2, 0x40410000, 49, 49 },
+    { 3, 0x40420000, 65, 65 },
+};
+
 struct GKMachineState {
     /*< private >*/
     MachineState parent_obj;
@@ -146,6 +152,7 @@ struct GKMachineState {
     struct Stm32MP2ADCState adc[sizeof(adcinits) / sizeof(adcinits[0])];
     struct Stm32MP2EXTIState exti[sizeof(extiinits) / sizeof(extiinits[0])];
     struct Stm32MP2GPIOState gpio[sizeof(gpioinits) / sizeof(gpioinits[0])];
+    struct Stm32MP2DMAState dma[sizeof(dmainits) / sizeof(dmainits[0])];
 
     struct GK_Input_Device_State idevice;
 
@@ -154,6 +161,8 @@ struct GKMachineState {
 
 void gk_connect_irq(struct GKMachineState *s, SysBusDevice *dev_from, unsigned int irq_no,
     unsigned int gic_irq, unsigned int nvic_irq);
+void gk_connect_dma_req(struct GKMachineState *s, DeviceState *dev_from, const char *name_from,
+    unsigned int req_id_from, unsigned int req_to);
 
 static const char *gk_cpu_types[] = { 
     ARM_CPU_TYPE_NAME("cortex-a35"), 
@@ -336,6 +345,23 @@ static void gk_machine_init(MachineState *machine)
     // Input device
     object_initialize_child(OBJECT(machine), "gk-input-device", &mc->idevice, TYPE_GK_INPUT_DEVICE);
 
+    // DMAs
+    for(unsigned i = 0u; i < sizeof(dmainits) / sizeof(dmainits[0]); i++)
+    {
+        g_autofree char *str_dmaname = g_strdup_printf("HPDMA%d", dmainits[i].id);
+
+        object_initialize_child(OBJECT(machine), str_dmaname, &mc->dma[i], TYPE_STM32MP2_DMA);
+        qdev_prop_set_int32(DEVICE(&mc->dma[i]), "id", dmainits[i].id);
+        sysbus_realize(SYS_BUS_DEVICE(&mc->dma[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->dma[i]), 0, dmainits[i].base);
+
+        for(unsigned int j = 0u; j < 16u; j++)
+        {
+            gk_connect_irq(mc, SYS_BUS_DEVICE(&mc->dma[i]), j, dmainits[i].gic_irq + j,
+                dmainits[i].nvic_irq + j);
+        }
+    }
+
     /* peripherals */
     for(unsigned i = 0; i < sizeof(extiinits) / sizeof(extiinits[0]); i++)
     {
@@ -450,6 +476,17 @@ static void gk_machine_init(MachineState *machine)
 
         qdev_connect_gpio_out_named(DEVICE(&mc->rcc), "adc_rst", i,
             qdev_get_gpio_in_named(DEVICE(&mc->adc[i]), "rst", 0));
+
+        // connect up adc dma requests
+        if(i == 0)
+        {
+            gk_connect_dma_req(mc, DEVICE(&mc->adc[0]), "dma", 0, 81);
+            gk_connect_dma_req(mc, DEVICE(&mc->adc[0]), "dma", 1, 82);
+        }
+        else
+        {
+            gk_connect_dma_req(mc, DEVICE(&mc->adc[1]), "dma", 0, 83);
+        }
     }
 
     for(unsigned int i = 0; i < sizeof(gpioinits) / sizeof(gpioinits[0]); i++)
@@ -578,5 +615,23 @@ void gk_connect_irq(struct GKMachineState *mc, SysBusDevice *dev_from, unsigned 
     {
         qdev_connect_gpio_out(split, 1,
             qdev_get_gpio_in(DEVICE(&mc->cm33), nvic_irq));
+    }
+}
+
+/* Create an irq splitter to send dma requests to all dma controllers */
+void gk_connect_dma_req(struct GKMachineState *s, DeviceState *dev_from, const char *name_from,
+    unsigned int req_id_from, unsigned int req_to)
+{
+    DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+    qdev_prop_set_uint32(split, "num-lines", sizeof(dmainits) / sizeof(dmainits[0]));
+    qdev_realize_and_unref(split, NULL, &error_fatal);
+
+    qdev_connect_gpio_out_named(dev_from, name_from, req_id_from,
+        qdev_get_gpio_in(split, 0));
+
+    for(unsigned int i = 0u; i < sizeof(dmainits) / sizeof(dmainits[0]); i++)
+    {
+        qdev_connect_gpio_out(split, i,
+            qdev_get_gpio_in_named(DEVICE(&s->dma[i]), "req", req_to));
     }
 }

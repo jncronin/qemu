@@ -49,12 +49,14 @@
 #define TYPE_STM32MP2_EXTI "stm32mp2-exti"
 #define TYPE_STM32MP2_GPIO "stm32mp2-gpio"
 #define TYPE_STM32MP2_ADC_INPUT_CHANNEL "stm32mp2-adc-input-channel"
+#define TYPE_STM32MP2_DMA "stm32mp2-dma"
 
 #define TYPE_GK_INPUT_DEVICE "gk-input-device"
 
 struct Stm32MP2CA35_SYSCFGState;
 struct GK_Input_Device_State;
 struct Stm32MP2ADCState;
+struct Stm32MP2DMAState;
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -344,6 +346,31 @@ struct Stm32MP2GPIOState
 
     uint32_t moder, otyper, ospeedr, pupdr, idr, odr, afrl, afrh;
     uint32_t irq_set;
+};
+
+struct Stm32MP2DMAChannelState
+{
+    int chan_id;
+    struct Stm32MP2DMAState *dma;
+
+    uint32_t lbar, sr, cr, tr1, tr2, br1, br1_int, sar, dar, tr3, br2, llr, sar_int, dar_int;
+    void *dst, *src;
+    hwaddr dst_hlen, src_hlen;
+};
+
+struct Stm32MP2DMAState
+{
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    qemu_irq irq[16];
+    int irq_set[16];
+
+    qemu_irq tc[16];
+
+    struct Stm32MP2DMAChannelState chan[16];
 };
 
 #endif

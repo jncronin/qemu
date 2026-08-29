@@ -47,7 +47,8 @@ arm_common_ss.add(when: 'CONFIG_GK', if_true: files(
   'gk_adc.c',
   'gk_exti.c',
   'gk_input_device.c',
-  'gk_gpio.c'
+  'gk_gpio.c',
+  'gk_dma.c'
 ))
 arm_common_ss.add(when: 'CONFIG_STM32F100_SOC', if_true: files('stm32f100_soc.c'))
 arm_common_ss.add(when: 'CONFIG_STM32F205_SOC', if_true: files('stm32f205_soc.c'))
