@@ -442,7 +442,6 @@ static void gk_machine_init(MachineState *machine)
         object_initialize_child(OBJECT(machine), str_adcname, &mc->adc[i], TYPE_STM32MP2_ADC);
         qdev_prop_set_int32(DEVICE(&mc->adc[i]), "id", id);
 
-        sysbus_realize(SYS_BUS_DEVICE(&mc->adc[i]), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(&mc->adc[i]), 0, adcinits[i].base);
 
         sysbus_connect_irq(SYS_BUS_DEVICE(&mc->adc[i]), 0,
@@ -495,6 +494,23 @@ static void gk_machine_init(MachineState *machine)
         qdev_get_gpio_in(DEVICE(&mc->gpio[GK_GPIOB]), 0));
     qdev_connect_gpio_out(DEVICE(&mc->idevice), 22,
         qdev_get_gpio_in(DEVICE(&mc->gpio[GK_GPIOB]), 10));
+
+    // and adc
+    object_property_set_link(OBJECT(&mc->adc[0]), "inp0", 
+        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_LX].chan), &error_fatal);
+    object_property_set_link(OBJECT(&mc->adc[0]), "inp1", 
+        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_RX].chan), &error_fatal);
+    object_property_set_link(OBJECT(&mc->adc[0]), "inp8", 
+        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_LY].chan), &error_fatal);
+    object_property_set_link(OBJECT(&mc->adc[0]), "inp4", 
+        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_RY].chan), &error_fatal);
+    object_property_set_link(OBJECT(&mc->adc[0]), "inp11", 
+        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_THROTTLE].chan), &error_fatal);
+
+    for(unsigned int i = 0u; i < sizeof(adcinits) / sizeof(adcinits[0]); i++)
+    {
+        sysbus_realize(SYS_BUS_DEVICE(&mc->adc[i]), &error_fatal);
+    }
 
     // Finally realize the input device so it updates all output irqs
     qdev_realize(DEVICE(&mc->idevice), NULL, &error_fatal);

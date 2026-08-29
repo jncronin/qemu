@@ -10,6 +10,65 @@ static void GK_INPUT_DEVICE_init(Object *obj)
     GK_Input_Device_State *s = GK_INPUT_DEVICE(obj);
     qdev_init_gpio_out(DEVICE(obj), &s->btns[0], sizeof(s->btns) / sizeof(s->btns[0]));
     s->btn_states = ~0;
+    
+    for(unsigned int i = 0u; i < sizeof(s->achans) / sizeof(s->achans[0]); i++)
+    {
+        s->achans[i].chan.minval = 0;
+        s->achans[i].chan.maxval = 4096;
+        s->achans[i].chan.val = 2048;
+    }
+}
+
+#define GK_IDEVICE_AXIS_DIR_P   2
+#define GK_IDEVICE_AXIS_DIR_N   1
+
+static int key_to_axis_id(unsigned int key, int *ax_id,
+    int *ax_dir)
+{
+    switch(key)
+    {
+        case KEY_A:
+            *ax_id = GK_IDEVICE_AXIS_LX;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            return 0;
+        case KEY_D:
+            *ax_id = GK_IDEVICE_AXIS_LX;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            return 0;
+        case KEY_W:
+            *ax_id = GK_IDEVICE_AXIS_LY;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            return 0;
+        case KEY_S:
+            *ax_id = GK_IDEVICE_AXIS_LY;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            return 0;
+        case KEY_KP4:
+            *ax_id = GK_IDEVICE_AXIS_RX;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            return 0;
+        case KEY_KP6:
+            *ax_id = GK_IDEVICE_AXIS_RX;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            return 0;
+        case KEY_KP2:
+            *ax_id = GK_IDEVICE_AXIS_RY;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            return 0;
+        case KEY_KP8:
+            *ax_id = GK_IDEVICE_AXIS_RY;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            return 0;
+        case KEY_KP3:
+            *ax_id = GK_IDEVICE_AXIS_THROTTLE;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            return 0;
+        case KEY_KP9:
+            *ax_id = GK_IDEVICE_AXIS_THROTTLE;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            return 0;
+    }
+    return -1;
 }
 
 static int key_to_btn_id(unsigned int key)
@@ -78,6 +137,39 @@ static void GK_INPUT_DEVICE_ihandler(DeviceState *dev, QemuConsole *src, QemuInp
         {
             s->btn_states |= 1U << btn_id;
             qemu_set_irq(s->btns[btn_id], 1);
+        }
+    }
+
+    /* First update axis state.  This is because user can press positive axis button,
+        negative axis button, both or neither, and the output adc value depends on
+        the combination of both the positive and negative buttons */
+    int ax_id, ax_dir;
+    if(key_to_axis_id(evt->key.key, &ax_id, &ax_dir) == 0)
+    {
+        if(evt->key.down)
+        {
+            s->achans[ax_id].pn_state |= ax_dir;
+        }
+        else
+        {
+            s->achans[ax_id].pn_state &= ~ax_dir;
+        }
+
+        switch(s->achans[ax_id].pn_state)
+        {
+            case 0:
+            case GK_IDEVICE_AXIS_DIR_N | GK_IDEVICE_AXIS_DIR_P:
+                s->achans[ax_id].chan.val = (s->achans[ax_id].chan.maxval +
+                    s->achans[ax_id].chan.minval) / 2;
+                break;
+
+            case GK_IDEVICE_AXIS_DIR_N:
+                s->achans[ax_id].chan.val = s->achans[ax_id].chan.minval;
+                break;
+
+            case GK_IDEVICE_AXIS_DIR_P:
+                s->achans[ax_id].chan.val = s->achans[ax_id].chan.maxval;
+                break;
         }
     }
 }

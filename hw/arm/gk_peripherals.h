@@ -48,6 +48,7 @@
 #define TYPE_STM32MP2_ADC "stm32mp2-adc"
 #define TYPE_STM32MP2_EXTI "stm32mp2-exti"
 #define TYPE_STM32MP2_GPIO "stm32mp2-gpio"
+#define TYPE_STM32MP2_ADC_INPUT_CHANNEL "stm32mp2-adc-input-channel"
 
 #define TYPE_GK_INPUT_DEVICE "gk-input-device"
 
@@ -240,6 +241,13 @@ struct adcc
     uint32_t csr, ccr;
 };
 
+struct Stm32MP2ADCChannelInputState
+{
+    DeviceState parent_obj;
+
+    int32_t val, minval, maxval;
+};
+
 struct Stm32MP2ADCState
 {
     SysBusDevice parent_obj;
@@ -250,6 +258,8 @@ struct Stm32MP2ADCState
 
     struct adc_inst inst[2];
     struct adcc com;
+
+    struct Stm32MP2ADCChannelInputState *inp[18];
 
     int irq_set;
 };
@@ -270,15 +280,28 @@ struct Stm32MP2EXTIState
     uint32_t regs[0x400/4];
 };
 
+struct GK_Input_Device_State_Axis
+{
+    struct Stm32MP2ADCChannelInputState chan;
+    int pn_state;
+};
+
+#define GK_IDEVICE_AXIS_LX          0
+#define GK_IDEVICE_AXIS_LY          1
+#define GK_IDEVICE_AXIS_RX          2
+#define GK_IDEVICE_AXIS_RY          3
+#define GK_IDEVICE_AXIS_THROTTLE    4
+
 struct GK_Input_Device_State
 {
     DeviceState parent_obj;
     QemuInputHandlerState *ihandler;
 
     uint32_t btn_states;
-    int16_t axes[8];
 
     qemu_irq btns[32];
+
+    struct GK_Input_Device_State_Axis achans[8];
 };
 
 #define GK_GPIOA    0
