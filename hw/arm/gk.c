@@ -106,6 +106,21 @@ static const struct TIMInit extiinits[] = {
     { 2, 0x46230000, 0, 0 }
 };
 
+static const struct TIMInit gpioinits[] = {
+    { GK_GPIOA, 0x44240000, 0, 0 },
+    { GK_GPIOB, 0x44250000, 0, 0 },
+    { GK_GPIOC, 0x44260000, 0, 0 },
+    { GK_GPIOD, 0x44270000, 0, 0 },
+    { GK_GPIOE, 0x44280000, 0, 0 },
+    { GK_GPIOF, 0x44290000, 0, 0 },
+    { GK_GPIOG, 0x442a0000, 0, 0 },
+    { GK_GPIOH, 0x442b0000, 0, 0 },
+    { GK_GPIOI, 0x442c0000, 0, 0 },
+    { GK_GPIOJ, 0x442d0000, 0, 0 },
+    { GK_GPIOK, 0x442e0000, 0, 0 },
+    { GK_GPIOZ, 0x46200000, 0, 0 },
+};
+
 struct GKMachineState {
     /*< private >*/
     MachineState parent_obj;
@@ -130,6 +145,7 @@ struct GKMachineState {
     struct Stm32MP2CA35_SYSCFGState ca35_syscfg;
     struct Stm32MP2ADCState adc[sizeof(adcinits) / sizeof(adcinits[0])];
     struct Stm32MP2EXTIState exti[sizeof(extiinits) / sizeof(extiinits[0])];
+    struct Stm32MP2GPIOState gpio[sizeof(gpioinits) / sizeof(gpioinits[0])];
 
     struct GK_Input_Device_State idevice;
 
@@ -317,6 +333,9 @@ static void gk_machine_init(MachineState *machine)
     pflash_cfi01_register(0x60000000, "ospi.flash", FLASH_SIZE,
         blk_by_legacy_dinfo(dinfo), 4 * KiB, 4, 0, 0, 0, 0, 0);
 
+    // Input device
+    object_initialize_child(OBJECT(machine), "gk-input-device", &mc->idevice, TYPE_GK_INPUT_DEVICE);
+
     /* peripherals */
     for(unsigned i = 0; i < sizeof(extiinits) / sizeof(extiinits[0]); i++)
     {
@@ -433,9 +452,17 @@ static void gk_machine_init(MachineState *machine)
             qdev_get_gpio_in_named(DEVICE(&mc->adc[i]), "rst", 0));
     }
 
-    // Input device
-    object_initialize_child(OBJECT(machine), "gk-input-device", &mc->idevice, TYPE_GK_INPUT_DEVICE);
-    qdev_realize(DEVICE(&mc->idevice), NULL, &error_fatal);
+    for(unsigned int i = 0; i < sizeof(gpioinits) / sizeof(gpioinits[0]); i++)
+    {
+        int id = gpioinits[i].id;
+        g_autofree char *str_gpioname = g_strdup_printf("GPIO%c",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[id]);
+
+        object_initialize_child(OBJECT(machine), str_gpioname, &mc->gpio[i], TYPE_STM32MP2_GPIO);
+        qdev_prop_set_int32(DEVICE(&mc->gpio[i]), "id", id);
+        sysbus_realize(SYS_BUS_DEVICE(&mc->gpio[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&mc->gpio[i]), 0, gpioinits[i].base);
+    }
 
     // i2c devices
     mc->i2cs[0].devs[0x20] = (struct i2c_device *)qdev_new(TYPE_I2C_PCA6416);
@@ -458,6 +485,19 @@ static void gk_machine_init(MachineState *machine)
     mc->i2cs[3].devs[0x40] = (struct i2c_device *)qdev_new(TYPE_I2C_GSLX680);
     object_property_add_child(OBJECT(&mc->i2cs[3]), "GSLX680@0x40", OBJECT(mc->i2cs[3].devs[0x40]));
     qdev_realize(DEVICE(mc->i2cs[3].devs[0x40]), NULL, &error_fatal);
+
+    // Connect up input device
+    qdev_connect_gpio_out(DEVICE(&mc->idevice), 8,
+        qdev_get_gpio_in(DEVICE(&mc->gpio[GK_GPIOJ]), 0));
+    qdev_connect_gpio_out(DEVICE(&mc->idevice), 9,
+        qdev_get_gpio_in(DEVICE(&mc->gpio[GK_GPIOH]), 2));
+    qdev_connect_gpio_out(DEVICE(&mc->idevice), 21,
+        qdev_get_gpio_in(DEVICE(&mc->gpio[GK_GPIOB]), 0));
+    qdev_connect_gpio_out(DEVICE(&mc->idevice), 22,
+        qdev_get_gpio_in(DEVICE(&mc->gpio[GK_GPIOB]), 10));
+
+    // Finally realize the input device so it updates all output irqs
+    qdev_realize(DEVICE(&mc->idevice), NULL, &error_fatal);
 
     // SD card
     dinfo = drive_get(IF_SD, 0, 0);

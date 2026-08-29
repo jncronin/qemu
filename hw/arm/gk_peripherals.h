@@ -47,6 +47,7 @@
 #define TYPE_STM32MP2_CA35_SYSCFG "stm32mp2-ca35-syscfg"
 #define TYPE_STM32MP2_ADC "stm32mp2-adc"
 #define TYPE_STM32MP2_EXTI "stm32mp2-exti"
+#define TYPE_STM32MP2_GPIO "stm32mp2-gpio"
 
 #define TYPE_GK_INPUT_DEVICE "gk-input-device"
 
@@ -278,6 +279,32 @@ struct GK_Input_Device_State
     int16_t axes[8];
 
     qemu_irq btns[32];
+};
+
+#define GK_GPIOA    0
+#define GK_GPIOB    1
+#define GK_GPIOC    2
+#define GK_GPIOD    3
+#define GK_GPIOE    4
+#define GK_GPIOF    5
+#define GK_GPIOG    6
+#define GK_GPIOH    7
+#define GK_GPIOI    8
+#define GK_GPIOJ    9
+#define GK_GPIOK    10
+#define GK_GPIOZ    25
+
+struct Stm32MP2GPIOState
+{
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    int32_t id;
+
+    qemu_irq outputs[16];
+
+    uint32_t moder, otyper, ospeedr, pupdr, idr, odr, afrl, afrh;
+    uint32_t irq_set;
 };
 
 #endif

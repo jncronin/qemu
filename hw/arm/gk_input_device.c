@@ -95,6 +95,19 @@ static void GK_INPUT_DEVICE_realize(DeviceState *dev, Error **errp)
     GK_Input_Device_State *s = GK_INPUT_DEVICE(dev);
     s->ihandler = qemu_input_handler_register(dev, &GK_INPUT_DEVICE_ihandler_info);
     qemu_input_handler_activate(s->ihandler);
+
+    // update output irq levels
+    for(unsigned int i = 0; i < 32u; i++)
+    {
+        if(s->btn_states & (1u << i))
+        {
+            qemu_set_irq(s->btns[i], 1);
+        }
+        else
+        {
+            qemu_set_irq(s->btns[i], 0);
+        }
+    }
 }
 
 static void GK_INPUT_DEVICE_unrealize(DeviceState *dev)
