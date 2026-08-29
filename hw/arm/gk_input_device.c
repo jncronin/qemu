@@ -13,9 +13,13 @@ static void GK_INPUT_DEVICE_init(Object *obj)
     
     for(unsigned int i = 0u; i < sizeof(s->achans) / sizeof(s->achans[0]); i++)
     {
+        g_autofree char *str_achan = g_strdup_printf("achan%u", i);
+
+        object_initialize_child(obj, str_achan, &s->achans[i], TYPE_STM32MP2_ADC_INPUT_CHANNEL);
         s->achans[i].chan.minval = 0;
         s->achans[i].chan.maxval = 4096;
         s->achans[i].chan.val = 2048;
+        qdev_realize(DEVICE(&s->achans[i]), NULL, &error_fatal);
     }
 }
 

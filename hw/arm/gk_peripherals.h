@@ -54,6 +54,7 @@
 
 struct Stm32MP2CA35_SYSCFGState;
 struct GK_Input_Device_State;
+struct Stm32MP2ADCState;
 
 struct Stm32MP2UsartState {
     SysBusDevice parent_obj;
@@ -230,10 +231,23 @@ struct Stm32MP2CA35_SYSCFGState
     struct ARMv7MState *cm33;
 };
 
+struct adc_inst_regs
+{
+    uint32_t isr, ier, cr, cfgr1, cfgr2, smpr[2], pcsel, sqr[4], dr, jsqr,
+        ofcfgr[4], ofr[4], gcomp, jdr[4], difsel, calfact;
+
+    int seq_idx;
+    int n_disc;
+};
+
 struct adc_inst
 {
-    uint32_t isr, ier, cr, cfgr1, cfgr2, smpr1, smpr2, pcsel, sqr[4], dr, jsqr,
-        ofcfgr[4], ofr[4], gcomp, jdr[4], difsel, calfact;
+    struct adc_inst_regs r;
+
+    // point back to main adc state so we can use a pointer to this structure in callbacks
+    int inst_id;
+    struct Stm32MP2ADCState *adc;
+    ptimer_state *pt;
 };
 
 struct adcc
@@ -254,14 +268,16 @@ struct Stm32MP2ADCState
     MemoryRegion mmio;
 
     int32_t id;
-    qemu_irq irq;
+    qemu_irq irq[2];
+    qemu_irq dma[2];
 
     struct adc_inst inst[2];
     struct adcc com;
+    uint64_t input_freq[2];
 
-    struct Stm32MP2ADCChannelInputState *inp[18];
+    struct Stm32MP2ADCChannelInputState *inp[20];
 
-    int irq_set;
+    int irq_set[2];
 };
 
 #define STM32MP2_EXTI_NIRQ  96

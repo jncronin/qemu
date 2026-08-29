@@ -443,8 +443,9 @@ static void gk_machine_init(MachineState *machine)
         qdev_prop_set_int32(DEVICE(&mc->adc[i]), "id", id);
 
         sysbus_mmio_map(SYS_BUS_DEVICE(&mc->adc[i]), 0, adcinits[i].base);
-
-        sysbus_connect_irq(SYS_BUS_DEVICE(&mc->adc[i]), 0,
+    
+        // TODO: connect up both adc1 and adc2 irqs (they exist within same object so need to modify adcinit to contain both)
+        qdev_connect_gpio_out(DEVICE(&mc->adc[i]), 0,
             qdev_get_gpio_in(DEVICE(mc->gic), adcinits[i].gic_irq));
 
         qdev_connect_gpio_out_named(DEVICE(&mc->rcc), "adc_rst", i,
