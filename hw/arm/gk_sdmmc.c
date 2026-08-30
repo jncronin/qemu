@@ -45,6 +45,8 @@ static void stm32mp2_SDMMC_write(void *opaque, hwaddr addr,
             {
                 // cpsmen
                 sdmmc_send_command(s);
+                sdmmc_patch_star(s);
+                sdmmc_update_irq(s);
             }
 
             break;
@@ -65,6 +67,7 @@ static void stm32mp2_SDMMC_write(void *opaque, hwaddr addr,
         case 0x38:
             s->star = s->star & ~(uint32_t)(val64 & 0x1fe00fffu);
             //fprintf(stderr, "SDMMC: ICR: %x -> STAR: %x\n", (uint32_t)val64, s->star);
+            sdmmc_patch_star(s);
             sdmmc_update_irq(s);
             break;
         case 0x3c:
@@ -171,7 +174,7 @@ static uint64_t stm32mp2_SDMMC_read(void *opaque, hwaddr addr,
             break;
         case 0x34:
             sdmmc_patch_star(s);
-            sdmmc_update_irq(s);
+            //sdmmc_update_irq(s);
             ret = s->star;
             break;
         case 0x38:
@@ -356,7 +359,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
         s->respcmdr = 0x3fu;
         memset(s->resp, 0, sizeof(s->resp));
         s->star |= 1U << 7;     // CMDSENT
-        sdmmc_update_irq(s);
+        //sdmmc_update_irq(s);
     }
     else
     {
@@ -384,7 +387,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
             }*/
 
             s->star |= 1U << 6;     // CMDREND
-            sdmmc_update_irq(s);
+            //sdmmc_update_irq(s);
         }
         else
         {
@@ -392,7 +395,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
             s->respcmdr = 0x3fu;
             memset(s->resp, 0, sizeof(s->resp));
             s->star |= 1U << 2;     // CTIMEOUT
-            sdmmc_update_irq(s);
+            //sdmmc_update_irq(s);
             return;
         }
     }
@@ -424,7 +427,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
                     {
                         fprintf(stderr, "SDMMC: couldn't get host address for idma: %x\n", s->idmabaser);
                         s->star |= 1U << 27;        // idmate
-                        sdmmc_update_irq(s);
+                        //sdmmc_update_irq(s);
                         return;
                     }
 
@@ -436,7 +439,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
                     s->star |= 1U << 10;        // dbckend
                     s->star |= 1U << 8;     // dataend
                     s->dctrl &= ~0x1u;
-                    sdmmc_update_irq(s);
+                    //sdmmc_update_irq(s);
                 }
             }
             else
@@ -466,7 +469,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
                         s->dcntr = 0;
                         s->dctrl &= ~0x1u;
                         s->star |= 1U << 27;    // idmate
-                        sdmmc_update_irq(s);
+                        //sdmmc_update_irq(s);
                     }
                     while(s->dcntr)
                     {
@@ -477,7 +480,7 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
                         {
                             fprintf(stderr, "SDMMC: couldn't get host address for idma: %x\n", s->idmabaser);
                             s->star |= 1U << 27;        // idmate
-                            sdmmc_update_irq(s);
+                            //sdmmc_update_irq(s);
                             break;
                         }
 
@@ -491,12 +494,12 @@ void sdmmc_send_command(struct Stm32MP2SDMMCState *s)
                         if(s->dcntr)
                         {
                             s->star |= 1U << 10;        // dbckend
-                            sdmmc_update_irq(s);
+                            //sdmmc_update_irq(s);
                         }
                     }
                     s->star |= 1U << 8;     // dataend
                     s->dctrl &= ~0x1u;
-                    sdmmc_update_irq(s);
+                    //sdmmc_update_irq(s);
                 }
             }
             // if not, handle via writes to FIFOR
@@ -530,7 +533,7 @@ int sdmmc_read_block(struct Stm32MP2SDMMCState *s)
         s->rx_fifo_data_size = blk_size;
 
         s->star |= 1U << 10;    // dbckend
-        sdmmc_update_irq(s);
+        //sdmmc_update_irq(s);
     }
     else if(s->dcntr != 0)
     {
