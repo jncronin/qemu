@@ -299,7 +299,7 @@ static uint8_t PCA6416_read(struct i2c_device *_d)
                     ret |= 1U << 4;
                 if(d->idevice->btn_states & (1U << 23))
                     ret |= 1U << 5;
-                if(d->idevice->btn_states & (1U << 14))
+                if(d->idevice->btn_states & (1U << 10))
                     ret |= 1U << 6;
             }
             else

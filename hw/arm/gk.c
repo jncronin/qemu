@@ -537,9 +537,9 @@ static void gk_machine_init(MachineState *machine)
     object_property_set_link(OBJECT(&mc->adc[0]), "inp0", 
         OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_LX].chan), &error_fatal);
     object_property_set_link(OBJECT(&mc->adc[0]), "inp1", 
-        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_RX].chan), &error_fatal);
-    object_property_set_link(OBJECT(&mc->adc[0]), "inp8", 
         OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_LY].chan), &error_fatal);
+    object_property_set_link(OBJECT(&mc->adc[0]), "inp8", 
+        OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_RX].chan), &error_fatal);
     object_property_set_link(OBJECT(&mc->adc[0]), "inp4", 
         OBJECT(&mc->idevice.achans[GK_IDEVICE_AXIS_RY].chan), &error_fatal);
     object_property_set_link(OBJECT(&mc->adc[0]), "inp11", 

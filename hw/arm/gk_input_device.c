@@ -41,27 +41,27 @@ static int key_to_axis_id(unsigned int key, int *ax_id,
             return 0;
         case KEY_W:
             *ax_id = GK_IDEVICE_AXIS_LY;
-            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
             return 0;
         case KEY_S:
             *ax_id = GK_IDEVICE_AXIS_LY;
-            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
             return 0;
         case KEY_KP4:
-            *ax_id = GK_IDEVICE_AXIS_RX;
+            *ax_id = GK_IDEVICE_AXIS_RY;
             *ax_dir = GK_IDEVICE_AXIS_DIR_N;
             return 0;
         case KEY_KP6:
-            *ax_id = GK_IDEVICE_AXIS_RX;
+            *ax_id = GK_IDEVICE_AXIS_RY;
             *ax_dir = GK_IDEVICE_AXIS_DIR_P;
             return 0;
         case KEY_KP2:
-            *ax_id = GK_IDEVICE_AXIS_RY;
-            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
+            *ax_id = GK_IDEVICE_AXIS_RX;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
             return 0;
         case KEY_KP8:
-            *ax_id = GK_IDEVICE_AXIS_RY;
-            *ax_dir = GK_IDEVICE_AXIS_DIR_P;
+            *ax_id = GK_IDEVICE_AXIS_RX;
+            *ax_dir = GK_IDEVICE_AXIS_DIR_N;
             return 0;
         case KEY_KP3:
             *ax_id = GK_IDEVICE_AXIS_THROTTLE;
@@ -99,7 +99,7 @@ static int key_to_btn_id(unsigned int key)
             return 8;           // voldown
         case KEY_EQUAL:
             return 9;           // volup
-        case KEY_MENU:
+        case KEY_F1:
             return 10;          // menu
         case KEY_RIGHTCTRL:
             return 16;          // joy
