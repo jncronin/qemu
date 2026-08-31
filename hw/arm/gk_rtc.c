@@ -54,7 +54,7 @@ static uint64_t stm32mp2_RTC_read(void *opaque, hwaddr addr,
                 struct tm *gtime = gmtime(&ct);
                 return ((to_bcd(gtime->tm_year) & 0xffU) << 16) |
                     (gtime->tm_wday << 13) |
-                    (to_bcd(gtime->tm_mon) << 8) |
+                    (to_bcd(gtime->tm_mon + 1) << 8) |
                     (to_bcd(gtime->tm_mday) << 0);
             }
 
